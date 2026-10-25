@@ -9,8 +9,12 @@ BACKEND_STAGE="$BUILD/backend"
 ICONSET="$BUILD/interview-assistant.iconset"
 RELEASE_DIR="${MACOS_RELEASE_DIR:-$ROOT/release}"
 # 优先使用本机 Electron 缓存，避免每次打包重新联网下载 Electron。
-# 如需指定其他缓存目录，可在执行前设置 ELECTRON_CACHE。
+# 如需指定其他缓存目录，可在执行前设置 ELECTRON_CACHE / ELECTRON_BUILDER_CACHE。
 export ELECTRON_CACHE="${ELECTRON_CACHE:-$HOME/Library/Caches/electron}"
+export ELECTRON_BUILDER_CACHE="${ELECTRON_BUILDER_CACHE:-$HOME/Library/Caches/electron-builder}"
+# Electron/校验文件默认走 npmmirror 国内镜像（GitHub 直连常超时）；
+# 已在缓存中的版本不会触发下载。需要官方源时执行前设 ELECTRON_MIRROR=""。
+export ELECTRON_MIRROR="${ELECTRON_MIRROR-https://npmmirror.com/mirrors/electron/}"
 # 本地打包默认不自动签名，避免没有可用时间戳服务时阻断 DMG 生成。
 # 发布签名时可通过 CSC_IDENTITY_AUTO_DISCOVERY=true 重新启用证书探测。
 export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-false}"
