@@ -19,7 +19,7 @@ const REQUEST_TIMEOUT_MS = 12 * 1000;
 
 let mainWindowRef = null;
 let stateFilePath = null;
-let state = { skippedVersion: null, lastCheckAt: 0 };
+let state = { skippedVersion: null, lastCheckAt: 0, autoCheckEnabled: true };
 let downloading = false;
 
 function loadState() {
@@ -29,6 +29,7 @@ function loadState() {
     if (parsed && typeof parsed === 'object') {
       state.skippedVersion = typeof parsed.skippedVersion === 'string' ? parsed.skippedVersion : null;
       state.lastCheckAt = Number.isFinite(parsed.lastCheckAt) ? parsed.lastCheckAt : 0;
+      state.autoCheckEnabled = parsed.autoCheckEnabled !== false;
     }
   } catch {
     /* 首次运行没有状态文件 */
@@ -220,9 +221,16 @@ function registerUpdater(mainWindow) {
     emit({ phase: 'idle' });
   });
   ipcMain.handle('get-app-version', () => app.getVersion());
+  ipcMain.handle('update-get-auto-check', () => state.autoCheckEnabled !== false);
+  ipcMain.handle('update-set-auto-check', (_event, enabled) => {
+    state.autoCheckEnabled = Boolean(enabled);
+    saveState();
+    return state.autoCheckEnabled;
+  });
 
   // 启动后延迟自动检查一次；之后按间隔检查
   setTimeout(() => {
+    if (state.autoCheckEnabled === false) return;
     if (Date.now() - state.lastCheckAt >= AUTO_CHECK_INTERVAL_MS) {
       void checkForUpdates({ manual: false });
     }
