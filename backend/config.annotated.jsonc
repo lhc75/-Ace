@@ -1,0 +1,175 @@
+{
+  // ==================== 大模型 ====================
+  // 可配置多个回答模型。api_base_url 通常填写 OpenAI-compatible
+  // 服务地址，api_key 和 model 按你的模型服务填写。
+  "models": [
+    {
+      "name": "Qwen3.8-27B",
+      "api_base_url": "http://172.20.0.116:8002/v1",
+      "api_key": "请保留 backend/config.json 中的实际值",
+      "model": "Qwen3.8-27B",
+      "supports_think": true,
+      "supports_vision": true,
+      "enabled": true,
+      // 联网搜索按模型单独配置；Search Key 与上面的模型 API Key 相互独立。
+      "web_search_enabled": false,
+      "web_search_api_base_url": "https://api.deepseek.com",
+      "web_search_api_key": "",
+      "think_enabled_params": {},
+      "think_disabled_params": {
+        "thinking": {
+          "type": "disabled"
+        },
+        "think_mode": false,
+        "enable_thinking": false,
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
+    }
+  ],
+  // 默认使用 models 数组中的第几个模型，从 0 开始。
+  "active_model": 0,
+  // 大模型回答随机性，0 更稳定，通常建议 0.2 - 0.7。
+  "temperature": 0.5,
+  // 大模型单次回答最大 token 数。
+  "max_tokens": 4096,
+  // 是否启用思考模式。
+  "think_mode": false,
+  // off/minimal/low/medium/high/xhigh/max/ultra，通常与 think_mode 配合使用。
+  // 不同模型会自动映射或退化为仅开关，不支持细分级别的模型不会收到未知参数。
+  "think_effort": "off",
+
+  // ==================== 主语音识别 ====================
+  // whisper=本地 Whisper；doubao=豆包云端；generic=OpenAI-compatible ASR；aliyun=阿里千问。
+  "stt_provider": "generic",
+
+  // 本地 Whisper 配置。当前作为远程 ASR 故障时的降级链路。
+  "whisper_model": "large-v3",
+  "whisper_language": "zh",
+  // 远程 ASR 默认启用：启动时在后台加载本地 Whisper，云端临时故障时可立即降级。
+  // 可在设置中关闭，以减少约 300MB 内存占用。
+  "whisper_preload": true,
+
+  // 豆包 ASR 配置。只有 stt_provider=doubao 时生效。
+  "doubao_stt_app_id": "",
+  "doubao_stt_access_token": "",
+  "doubao_stt_api_key": "",
+  "doubao_stt_resource_id": "volc.seedasr.sauc.duration",
+  "doubao_stt_boosting_table_id": "",
+
+  // 阿里千问实时 ASR：使用千问平台 API Key；模型名称可手动填写，须兼容千问实时 ASR 协议。
+  "aliyun_stt_api_key": "",
+  "aliyun_stt_model": "qwen-audio-3.1-asr-flash-streaming",
+
+  // 当前使用服务器上的 FunASR。
+  // 注意：Base URL 要写到 /v1，程序会自动请求 /audio/transcriptions。
+  "generic_stt_api_base_url": "http://172.20.0.116:8000/v1",
+  // 你的 FunASR 服务不要求 API Key，所以留空。
+  "generic_stt_api_key": "",
+  // 服务器 /v1/models 返回的模型名：fun-asr-nano、sensevoice、paraformer。
+  "generic_stt_model": "fun-asr-nano",
+  // 如果远程服务需要额外请求头，可写 JSON 或每行一个 Header: Value。
+  "generic_stt_custom_headers": "",
+
+  // ==================== 候选人麦克风 ====================
+  // 是否额外读取你的麦克风，用于复盘和下一轮追问上下文。
+  // 这一路不会触发自动答题。
+  "candidate_asr_enabled": false,
+  "candidate_stt_provider": "whisper",
+  "candidate_whisper_model": "",
+  "candidate_whisper_language": "",
+  "candidate_remote_stt_enabled": false,
+  "candidate_context_enabled": true,
+  "candidate_context_wait_ms": 200,
+  "candidate_context_max_chars": 900,
+  "candidate_context_min_chars": 6,
+  "candidate_streaming_asr_enabled": true,
+  "candidate_streaming_asr_interval_ms": 1500,
+  "interviewer_streaming_asr_enabled": false,
+  // 千问流式识别专用短窗口（仅 interviewer_streaming_asr_enabled 生效时用于定稿→答题的确认/派发等待）
+  "assist_stream_asr_confirm_window_sec": 0.4,
+  "assist_stream_asr_fast_confirm_sec": 0.8,
+  "assist_stream_asr_candidate_wait_sec": 1.5,
+  "assist_stream_asr_dispatch_grace_sec": 0.5,
+  // 流式模式：最后一段语音静默满该秒数才派发答题（防止句中停顿把一题拆成两题）
+  "assist_stream_asr_silence_flush_sec": 1.2,
+  // 千问流式即时派发：定稿即发（关闭则回到静默门控+短窗口）
+  "assist_stream_asr_instant_dispatch": true,
+  "candidate_mic_compatibility_mode": true,
+
+  // ==================== 面试基础信息 ====================
+  "position": "后端开发",
+  "language": "Java",
+
+  // ==================== 语音检测 ====================
+  // 是否按声音自动切分面试官语音。
+  "auto_detect": true,
+  // 低于此音量视为空白。声音太小可以适当调低，噪声太大可以调高。
+  "silence_threshold": 0.01,
+  // 面试官停止说话多久后提交这一段音频，单位为秒。
+  "silence_duration": 1.2,
+
+  // ==================== 实时回答 ====================
+  "max_parallel_answers": 2,
+  "answer_autoscroll_bottom_px": 40,
+  "transcription_min_sig_chars": 2,
+  "assist_transcription_merge_gap_sec": 2.0,
+  "assist_transcription_merge_max_sec": 12.0,
+  "assist_vad_max_speech_sec": 18.0,
+  "assist_vad_min_speech_sec": 0.3,
+  "assist_asr_confirm_window_sec": 0.45,
+  "assist_asr_group_max_wait_sec": 1.2,
+  "assist_asr_interrupt_running": true,
+  "assist_high_churn_short_answer": false,
+  "assist_realtime_max_tokens": 720,
+  "assist_realtime_high_churn_max_tokens": 320,
+  "assist_stop_answer_wait_sec": 3.0,
+  "assist_interviewer_asr_drain_timeout_sec": 6.0,
+
+  // ==================== 截图/笔试 ====================
+  "screen_capture_region": "full",
+  "screen_capture_max_long_edge": 1600,
+  "multi_screen_capture_idle_sec": 10.0,
+  "written_exam_mode": false,
+  "written_exam_think": false,
+
+  // ==================== 知识库 ====================
+  "kb_enabled": false,
+  "kb_dir": "data/kb",
+  "kb_db_path": "data/kb.sqlite",
+  "kb_cache_dir": "data/kb_cache",
+  "kb_top_k": 4,
+  "kb_deadline_ms": 150,
+  "kb_asr_deadline_ms": 80,
+  "kb_min_score": 0.0,
+  "kb_chunk_max_chars": 800,
+  "kb_prompt_excerpt_chars": 300,
+  "kb_trigger_modes": [
+    "asr_realtime",
+    "manual_text",
+    "written_exam"
+  ],
+  "kb_file_extensions": [
+    ".md",
+    ".txt",
+    ".log",
+    ".docx",
+    ".pdf"
+  ],
+  "kb_ocr_enabled": false,
+  "kb_vision_caption_enabled": false,
+  "kb_max_upload_bytes": 20971520,
+  "kb_recent_hits_capacity": 50,
+  "kb_asr_min_query_chars": 6,
+  // 同义词扩展: 命中常见缩写/ASR 变体 (mq↔消息队列, b加树↔b+树) 时自动补充同组词
+  "kb_synonyms_enabled": true,
+  // 单条 query 送入 FTS 的 token 上限 (防长 ASR 句拖慢检索)
+  "kb_max_query_tokens": 64,
+  // top_k 中同一文档最多占几条, 保证来源多样性
+  "kb_per_doc_max_hits": 2,
+
+  // ==================== 面试复盘 ====================
+  "review_enabled": true,
+  "review_model_index": 0
+}

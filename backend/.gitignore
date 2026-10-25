@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# 配置与密钥（严禁提交）
+config.json
+user_config.json
+.env
+.env.*
+*.local
+
+# SQLite 数据库（含真实面试记录，严禁提交）
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/resume_uploads/
+data/review.db*
+knowledge.db*
+job_tracker.db*
+
+# 知识库（用户上传笔记/文件 + 索引缓存）
+data/kb/
+data/kb.sqlite
+data/kb.sqlite-*
+data/kb_cache/
+
+# 模型缓存
+*.bin
+*.pt
+
+# 临时与日志
+tmp/
+*.log
+*.tmp
+*.bak
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

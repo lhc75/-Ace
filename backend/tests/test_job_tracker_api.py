@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import importlib
+from pathlib import Path
+import sys
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+
+def test_offer_create_rejects_missing_application(tmp_path: Path, monkeypatch):
+    jobs_router = importlib.import_module("api.jobs.router")
+    from services.storage import job_tracker as jt
+
+    monkeypatch.setattr(jt, "DB_PATH", str(tmp_path / "job_tracker.db"))
+    jt.init_db()
+
+    app = FastAPI()
+    app.include_router(jobs_router.router, prefix="/api")
+
+    with TestClient(app) as client:
+        res = client.post("/api/job-tracker/offers", json={"application_id": 999})
+
+    assert res.status_code == 404
+    assert res.json()["detail"] == "Application not found"
+
+
+def test_applications_include_review_summary_and_review_list(tmp_path: Path, monkeypatch):
+    jobs_router = importlib.import_module("api.jobs.router")
+    from services.storage import job_tracker as jt
+    from services.storage import review
+    import time
+
+    monkeypatch.setattr(jt, "DB_PATH", str(tmp_path / "job_tracker.db"))
+    monkeypatch.setattr(review, "DB_PATH", str(tmp_path / "review.db"))
+    jt.init_db()
+    review.init_db()
+
+    app_row = jt.create_application({"company": "ACME", "position": "后端"})
+    session_id = review.create_session(
+        started_at=time.time() - 10,
+        interviewer_enabled=True,
+        candidate_enabled=True,
+        application_id=app_row["id"],
+        title="ACME 一面",
+    )
+    for idx in range(5):
+        review.add_turn(
+            session_id=session_id,
+            qa_id=f"qa-{idx}",
+            seq=idx + 1,
+            question_text=f"问题 {idx + 1}",
+            candidate_answer_text=f"回答 {idx + 1}",
+        )
+    review.end_session(session_id, status="completed", ended_at=time.time())
+    review.update_session_summary(session_id, "## 总结\n还不错", [], [], avg_score=7.5)
+    short_session_id = review.create_session(
+        started_at=time.time() + 10,
+        interviewer_enabled=True,
+        candidate_enabled=True,
+        application_id=app_row["id"],
+        title="ACME 截图笔试练习",
+    )
+    review.add_turn(
+        session_id=short_session_id,
+        qa_id="short-qa-1",
+        seq=1,
+        question_text="短样本问题",
+        candidate_answer_text="短样本回答",
+    )
+    review.end_session(short_session_id, status="completed", ended_at=time.time() + 20)
+
+    app = FastAPI()
+    app.include_router(jobs_router.router, prefix="/api")
+
+    with TestClient(app) as client:
+        list_res = client.get("/api/job-tracker/applications")
+        reviews_res = client.get(f"/api/job-tracker/applications/{app_row['id']}/reviews")
+        patch_res = client.patch(
+            f"/api/job-tracker/applications/{app_row['id']}",
+            json={"notes": "更新备注"},
+        )
+        create_res = client.post(
+            "/api/job-tracker/applications",
+            json={"company": "NewCo", "position": "前端"},
+        )
+
+    assert list_res.status_code == 200
+    item = list_res.json()["items"][0]
+    assert item["review_summary"]["review_count"] == 1
+    assert item["review_summary"]["latest_review_id"] == session_id
+    assert item["review_summary"]["latest_avg_score"] == 7.5
+    assert item["review_summary"]["linked_review_count"] == 2
+    assert item["review_summary"]["latest_linked_review_id"] == short_session_id
+
+    assert patch_res.status_code == 200
+    patched = patch_res.json()
+    assert patched["notes"] == "更新备注"
+    assert patched["review_summary"]["review_count"] == 1
+    assert patched["review_summary"]["linked_review_count"] == 2
+
+    assert create_res.status_code == 200
+    created = create_res.json()
+    assert created["company"] == "NewCo"
+    assert created["review_summary"]["review_count"] == 0
+    assert created["review_summary"]["linked_review_count"] == 0
+
+    assert reviews_res.status_code == 200
+    review_items = reviews_res.json()["items"]
+    assert review_items[0]["id"] == short_session_id
+    assert review_items[0]["auto_sync_eligible"] is False
+    review_item = next(item for item in review_items if item["id"] == session_id)
+    assert review_item["auto_sync_eligible"] is True
+    assert review_item["summary_preview"].startswith("## 总结")

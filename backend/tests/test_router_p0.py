@@ -1,0 +1,1008 @@
+"""
+Router-level P0 fixes (CR follow-up):
+  - /resume 上传必须流式校验大小, 而不是把整个 body 读进内存
+  - api_models_layout 的 order 列表必须排除 bool (Python isinstance(True, int) == True)
+  - api_update_config 对非法 enum 必须 422, 不能静默 pop
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+common_router = importlib.import_module("api.common.router")
+
+
+# ---------- /resume 上传防 OOM ------------------------------------------------
+
+
+class _FakeRequest:
+    def __init__(self, content_length: int | None):
+        self.headers: dict[str, str] = {}
+        if content_length is not None:
+            self.headers["content-length"] = str(content_length)
+
+
+class _ChunkedUpload:
+    """模拟 starlette.UploadFile, 支持按 size 分片返回."""
+
+    def __init__(self, filename: str, total_bytes: int, chunk: int = 1024 * 1024):
+        self.filename = filename
+        self._remaining = total_bytes
+        self._chunk = chunk
+
+    async def read(self, size: int = -1) -> bytes:
+        if self._remaining <= 0:
+            return b""
+        n = self._remaining if size < 0 else min(size, self._remaining)
+        self._remaining -= n
+        return b"x" * n
+
+
+def _run(coro):
+    return asyncio.run(coro)
+
+
+def test_resume_upload_rejects_oversized_content_length(monkeypatch):
+    """声明的 Content-Length 超限时立即 413, 不读 body, 不进 add_upload."""
+
+    add_upload_called = False
+
+    def fake_add_upload(*args, **kwargs):
+        nonlocal add_upload_called
+        add_upload_called = True
+        return {"ok": True}
+
+    monkeypatch.setattr(common_router, "add_upload", fake_add_upload)
+
+    too_big = common_router.RESUME_UPLOAD_MAX_BYTES + 1
+    upload = _ChunkedUpload("big.pdf", total_bytes=too_big)
+    request = _FakeRequest(content_length=too_big)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_upload_resume(request, upload))
+
+    assert exc.value.status_code == 413
+    assert "10MB" in exc.value.detail
+    assert add_upload_called is False
+
+
+def test_resume_upload_aborts_when_streamed_size_exceeds_limit(monkeypatch):
+    """Content-Length 缺失/伪造但实际 body 超限时, 流式累积也必须 413."""
+
+    add_upload_called = False
+
+    def fake_add_upload(*args, **kwargs):
+        nonlocal add_upload_called
+        add_upload_called = True
+        return {"ok": True}
+
+    monkeypatch.setattr(common_router, "add_upload", fake_add_upload)
+
+    too_big = common_router.RESUME_UPLOAD_MAX_BYTES + 5 * 1024
+    upload = _ChunkedUpload("big.pdf", total_bytes=too_big)
+    request = _FakeRequest(content_length=None)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_upload_resume(request, upload))
+
+    assert exc.value.status_code == 413
+    assert add_upload_called is False
+
+
+def test_resume_upload_aborts_on_runaway_read(monkeypatch):
+    """异常 file.read 实现 (size 参数被忽略, 永远返回非空但 total 不超限) 时,
+    max_iters 兜底必须能终止循环, 防止 unbounded loop."""
+
+    class _StuckUpload:
+        filename = "stuck.bin"
+
+        async def read(self, size: int = -1) -> bytes:
+            # 永远返回 1 字节, 既不为空也不会让 total 在合理时间内突破 10MB
+            return b"\x00"
+
+    add_upload_called = False
+
+    def fake_add_upload(*args, **kwargs):
+        nonlocal add_upload_called
+        add_upload_called = True
+        return {"ok": True}
+
+    monkeypatch.setattr(common_router, "add_upload", fake_add_upload)
+
+    # 把 chunk 调到 1 字节, 让 max_iters = 10MB+2 == 真的小一点也行,
+    # 但实际 1B chunk 跑 10M+2 次也只到 ~10MB, 超限会先触发. 因此这里改用更小阈值:
+    monkeypatch.setattr(common_router, "RESUME_UPLOAD_MAX_BYTES", 16)
+    monkeypatch.setattr(common_router, "_RESUME_UPLOAD_CHUNK", 1)
+
+    request = _FakeRequest(content_length=None)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_upload_resume(request, _StuckUpload()))
+
+    # 两种合法终止: 413 (累计超限) 或 500 (跑满 max_iters), 都能保证不挂死.
+    assert exc.value.status_code in (413, 500)
+    assert add_upload_called is False
+
+
+def test_resume_upload_passes_under_limit(monkeypatch):
+    """正常大小走流式读后落到 add_upload."""
+
+    seen: dict[str, object] = {}
+
+    def fake_add_upload(content: bytes, filename: str):
+        seen["content_len"] = len(content)
+        seen["filename"] = filename
+        return {"ok": True, "size": len(content)}
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "add_upload", fake_add_upload)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    size = 200 * 1024
+    upload = _ChunkedUpload("ok.pdf", total_bytes=size)
+    request = _FakeRequest(content_length=size)
+
+    result = _run(common_router.api_upload_resume(request, upload))
+
+    assert result == {"ok": True, "size": size}
+    assert seen["content_len"] == size
+    assert seen["filename"] == "ok.pdf"
+
+
+# ---------- api_models_layout: order 列表必须排除 bool ----------------------
+
+
+class _FakeModel:
+    def __init__(self, name: str, api_key: str = ""):
+        self.name = name
+        self.api_key = api_key
+        self.api_base_url = "https://api.openai.com/v1"
+        self.model = "gpt-4o-mini"
+        self.supports_think = False
+        self.supports_vision = False
+        self.enabled = True
+        self.think_enabled_params = {}
+        self.think_disabled_params = {}
+
+    def model_dump(self) -> dict:
+        return {
+            "name": self.name,
+            "api_base_url": self.api_base_url,
+            "api_key": self.api_key,
+            "model": self.model,
+            "supports_think": self.supports_think,
+            "supports_vision": self.supports_vision,
+            "enabled": self.enabled,
+            "think_enabled_params": self.think_enabled_params,
+            "think_disabled_params": self.think_disabled_params,
+        }
+
+    def model_copy(self, update: dict):
+        clone = _FakeModel(self.name)
+        for k, v in update.items():
+            setattr(clone, k, v)
+        return clone
+
+
+class _FakeCfg:
+    def __init__(self, models: list[_FakeModel], active: int = 0):
+        self.models = models
+        self.active_model = active
+
+
+def test_models_layout_order_ignores_bool(monkeypatch):
+    """前端误传 [True, False, ...] 时, bool 必须被忽略, 不能当成 1/0."""
+
+    fake_cfg = _FakeCfg(
+        models=[_FakeModel("m0"), _FakeModel("m1"), _FakeModel("m2")],
+        active=0,
+    )
+    monkeypatch.setattr(common_router, "get_config", lambda: fake_cfg)
+
+    captured: dict[str, object] = {}
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        captured["update"] = args[0] if args else kwargs
+        return None
+
+    monkeypatch.setattr(common_router, "update_config", lambda d: None)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = {"order": [True, False, 0, 1, 2]}
+
+    _run(common_router.api_models_layout(body))
+
+    update = captured["update"]
+    assert isinstance(update, dict)
+    names = [m["name"] for m in update["models"]]
+    # True/False 必须被忽略, 真实的 0/1/2 走进结果
+    assert names == ["m0", "m1", "m2"]
+
+
+def test_models_layout_order_preserves_legitimate_int_indices(monkeypatch):
+    """合法 int 仍然按顺序选取, 排除 bool 不影响正常路径."""
+
+    fake_cfg = _FakeCfg(
+        models=[_FakeModel("a"), _FakeModel("b"), _FakeModel("c")],
+        active=0,
+    )
+    monkeypatch.setattr(common_router, "get_config", lambda: fake_cfg)
+
+    captured: dict[str, object] = {}
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        captured["update"] = args[0] if args else kwargs
+        return None
+
+    monkeypatch.setattr(common_router, "update_config", lambda d: None)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    _run(common_router.api_models_layout({"order": [2, 0, 1]}))
+
+    names = [m["name"] for m in captured["update"]["models"]]
+    assert names == ["c", "a", "b"]
+
+
+def test_models_layout_rejects_disabling_every_model(monkeypatch):
+    """至少保留一个启用模型，否则主流程会保存成功但答题必然不可用。"""
+
+    fake_cfg = _FakeCfg(
+        models=[_FakeModel("m0"), _FakeModel("m1")],
+        active=0,
+    )
+    monkeypatch.setattr(common_router, "get_config", lambda: fake_cfg)
+
+    update_called = False
+
+    def fake_update_config(d):
+        nonlocal update_called
+        update_called = True
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_models_layout({"enabled": [False, False]}))
+
+    assert exc.value.status_code == 422
+    assert "至少启用一个模型" in exc.value.detail
+    assert update_called is False
+
+
+# ---------- api_update_config: 非法 enum 必须 422 ---------------------------
+
+
+class _Body:
+    """伪造 ConfigUpdate 实例, 绕过 pydantic 校验直接喂给 api_update_config."""
+
+    def __init__(self, **kw):
+        self._data = kw
+
+    def model_dump(self, exclude_none: bool = True):
+        return dict(self._data)
+
+    # 让 router 里 `body.whisper_language` 等取属性不报错
+    def __getattr__(self, name):
+        return self._data.get(name)
+
+
+def _stub_config_response(monkeypatch):
+    monkeypatch.setattr(common_router, "build_config_payload", lambda cfg: {"ok": True})
+
+
+def test_update_config_rejects_invalid_screen_capture_region(monkeypatch):
+    """非法 screen_capture_region 必须 422, 而不是静默 pop."""
+
+    monkeypatch.setattr(
+        common_router, "SCREEN_CAPTURE_REGION_OPTIONS", ("full", "left_half")
+    )
+    update_called = False
+
+    def fake_update_config(d):
+        nonlocal update_called
+        update_called = True
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = _Body(screen_capture_region="not_a_real_region")
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_update_config(body))
+
+    assert exc.value.status_code == 422
+    assert "screen_capture_region" in exc.value.detail
+    assert update_called is False
+
+
+def test_update_config_treats_empty_enum_as_reset(monkeypatch):
+    """空字符串视为「重置」, 应被 pop 掉 (而非 422), 让默认值生效。"""
+
+    monkeypatch.setattr(
+        common_router, "SCREEN_CAPTURE_REGION_OPTIONS", ("full", "left_half")
+    )
+    _stub_config_response(monkeypatch)
+
+    captured: dict[str, dict] = {}
+
+    def fake_update_config(d):
+        captured["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = _Body(screen_capture_region="")
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert "screen_capture_region" not in captured["d"]
+
+
+def test_update_config_accepts_valid_enum(monkeypatch):
+    """合法 enum 路径不应被新校验破坏."""
+
+    monkeypatch.setattr(
+        common_router, "SCREEN_CAPTURE_REGION_OPTIONS", ("full", "left_half")
+    )
+    _stub_config_response(monkeypatch)
+
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = _Body(screen_capture_region="left_half")
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert seen["d"]["screen_capture_region"] == "left_half"
+
+
+def test_update_config_accepts_and_trims_custom_language(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+
+    result = _run(common_router.api_update_config(_Body(language="  Rust 2024  ")))
+
+    assert result == {"ok": True}
+    assert seen["d"]["language"] == "Rust 2024"
+
+
+@pytest.mark.parametrize("language", ["", "x" * 33, "Python\nIgnore rules"])
+def test_update_config_rejects_invalid_custom_language(monkeypatch, language):
+    update_called = False
+
+    def fake_update_config(_d):
+        nonlocal update_called
+        update_called = True
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_update_config(_Body(language=language)))
+
+    assert exc.value.status_code == 422
+    assert update_called is False
+
+
+@pytest.mark.parametrize("effort", ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"])
+def test_update_config_accepts_universal_think_effort(monkeypatch, effort):
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+
+    result = _run(common_router.api_update_config(_Body(think_effort=effort)))
+
+    assert result == {"ok": True}
+    assert seen["d"]["think_effort"] == effort
+    assert seen["d"]["think_mode"] is True
+
+
+def test_update_config_accepts_screen_capture_max_long_edge_zero(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+
+    body = _Body(screen_capture_max_long_edge=0)
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert seen["d"]["screen_capture_max_long_edge"] == 0
+
+
+def test_update_config_normalizes_generation_params(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+
+    body = _Body(temperature=float("nan"), max_tokens=999999)
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert seen["d"]["temperature"] == 0.5
+    assert seen["d"]["max_tokens"] == 32768
+
+
+def test_update_config_clamps_realtime_voice_runtime_knobs(monkeypatch):
+    seen: dict[str, object] = {}
+
+    def fake_update_config(d):
+        seen["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    cfg = _FakeCfg(models=[_FakeModel("main")], active=0)
+    cfg.assist_realtime_max_tokens = 720
+    monkeypatch.setattr(common_router, "get_config", lambda: cfg)
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+
+    body = _Body(
+        assist_vad_max_speech_sec=90,
+        assist_vad_min_speech_sec=0.01,
+        assist_realtime_max_tokens=200,
+        assist_realtime_high_churn_max_tokens=9999,
+        assist_stop_answer_wait_sec=30,
+        assist_interviewer_asr_drain_timeout_sec=99,
+    )
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert seen["d"]["assist_vad_max_speech_sec"] == 60.0
+    assert seen["d"]["assist_vad_min_speech_sec"] == 0.1
+    assert seen["d"]["assist_realtime_max_tokens"] == 256
+    assert seen["d"]["assist_realtime_high_churn_max_tokens"] == 256
+    assert seen["d"]["assist_stop_answer_wait_sec"] == 20.0
+    assert seen["d"]["assist_interviewer_asr_drain_timeout_sec"] == 30.0
+
+
+def test_update_config_rejects_legacy_iflytek_provider(monkeypatch):
+    update_called = False
+
+    def fake_update_config(d):
+        nonlocal update_called
+        update_called = True
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = _Body(stt_provider="iflytek")
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_update_config(body))
+
+    assert exc.value.status_code == 422
+    assert "已废弃" in exc.value.detail
+    assert update_called is False
+
+
+def test_update_config_rejects_unknown_stt_provider(monkeypatch):
+    update_called = False
+
+    def fake_update_config(d):
+        nonlocal update_called
+        update_called = True
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "STT_PROVIDER_OPTIONS", ("whisper", "doubao", "generic"))
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    body = _Body(stt_provider="custom-provider")
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_update_config(body))
+
+    assert exc.value.status_code == 422
+    assert "stt_provider" in exc.value.detail
+    assert update_called is False
+
+
+def test_stt_test_rejects_legacy_iflytek_provider(monkeypatch):
+    monkeypatch.setattr(common_router, "get_config", lambda: _Body(stt_provider="iflytek"))
+
+    result = _run(common_router.api_stt_test())
+
+    assert result["ok"] is False
+    assert "已下线" in result["detail"]
+
+
+def test_stt_test_rejects_empty_transcription(monkeypatch):
+    monkeypatch.setattr(common_router, "get_config", lambda: _Body(stt_provider="generic", generic_stt_api_base_url="https://x", generic_stt_api_key="sk", generic_stt_model="m"))
+
+    class _FakeEngine:
+        def transcribe(self, audio, sample_rate=16000):
+            return ""
+
+    monkeypatch.setattr(common_router, "get_stt_engine", lambda: _FakeEngine())
+    monkeypatch.setattr(common_router.Path, "exists", lambda self: False)
+
+    result = _run(common_router.api_stt_test())
+
+    assert result["ok"] is False
+    assert "空文本" in result["detail"]
+
+
+def test_stt_test_allows_local_generic_server_without_api_key(monkeypatch):
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _Body(
+            stt_provider="generic",
+            generic_stt_api_base_url="http://172.20.0.116:8000/v1",
+            generic_stt_api_key="",
+            generic_stt_model="fun-asr-nano",
+        ),
+    )
+
+    class _FakeEngine:
+        def transcribe(self, audio, sample_rate=16000):
+            return "本地 FunASR 已连接。"
+
+    monkeypatch.setattr(common_router, "get_stt_engine", lambda: _FakeEngine())
+    monkeypatch.setattr(common_router.Path, "exists", lambda self: False)
+
+    result = _run(common_router.api_stt_test())
+
+    assert result == {
+        "ok": True,
+        "provider": "generic",
+        "fallback_used": False,
+        "detail": "通用 ASR 主引擎测试成功（未使用 Whisper 兜底）",
+        "text": "本地 FunASR 已连接。",
+    }
+
+
+def test_update_config_rejects_all_disabled_models(monkeypatch):
+    """完整模型配置保存也不能留下 0 个启用模型。"""
+
+    update_called = False
+
+    def fake_update_config(d):
+        nonlocal update_called
+        update_called = True
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _FakeCfg(models=[_FakeModel("old")], active=0),
+    )
+
+    body = _Body(
+        models=[
+            {
+                "name": "main",
+                "api_base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test",
+                "model": "gpt-4o-mini",
+                "supports_think": False,
+                "supports_vision": False,
+                "enabled": False,
+            }
+        ]
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_update_config(body))
+
+    assert exc.value.status_code == 422
+    assert "至少启用一个模型" in exc.value.detail
+    assert update_called is False
+
+
+def test_models_full_does_not_return_plain_api_key(monkeypatch):
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _FakeCfg(models=[_FakeModel("main", api_key="sk-secret")], active=0),
+    )
+
+    result = _run(common_router.api_get_models_full())
+
+    assert result["models"][0]["api_key"] == ""
+    assert result["models"][0]["has_key"] is True
+
+
+def test_update_config_keep_existing_api_key_placeholder(monkeypatch):
+    captured: dict[str, dict] = {}
+
+    def fake_update_config(d):
+        captured["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _FakeCfg(models=[_FakeModel("old", api_key="sk-existing")], active=0),
+    )
+
+    body = _Body(
+        models=[
+            {
+                "name": "main",
+                "api_base_url": "https://api.openai.com/v1",
+                "api_key": common_router._MODEL_API_KEY_KEEP,
+                "model": "gpt-4o-mini",
+                "supports_think": False,
+                "supports_vision": False,
+                "enabled": True,
+            }
+        ]
+    )
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert captured["d"]["models"][0].api_key == "sk-existing"
+
+
+def test_update_config_keep_existing_api_key_uses_original_index_after_reorder(monkeypatch):
+    captured: dict[str, dict] = {}
+
+    def fake_update_config(d):
+        captured["d"] = dict(d)
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router, "update_config", fake_update_config)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    _stub_config_response(monkeypatch)
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _FakeCfg(
+            models=[
+                _FakeModel("first", api_key="sk-first"),
+                _FakeModel("second", api_key="sk-second"),
+            ],
+            active=0,
+        ),
+    )
+
+    body = _Body(
+        models=[
+            {
+                "name": "second",
+                "api_base_url": "https://api.openai.com/v1",
+                "api_key": common_router._MODEL_API_KEY_KEEP,
+                "model_original_index": 1,
+                "model": "gpt-4o-mini",
+                "supports_think": False,
+                "supports_vision": False,
+                "enabled": True,
+            },
+            {
+                "name": "first",
+                "api_base_url": "https://api.openai.com/v1",
+                "api_key": common_router._MODEL_API_KEY_KEEP,
+                "model_original_index": 0,
+                "model": "gpt-4o-mini",
+                "supports_think": False,
+                "supports_vision": False,
+                "enabled": True,
+            },
+        ]
+    )
+
+    result = _run(common_router.api_update_config(body))
+
+    assert result == {"ok": True}
+    assert [model.name for model in captured["d"]["models"]] == ["second", "first"]
+    assert [model.api_key for model in captured["d"]["models"]] == ["sk-second", "sk-first"]
+
+
+def test_model_list_rejects_missing_connection_fields():
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_list_remote_models(common_router.ModelListRequest(api_base_url="", api_key="sk-test")))
+    assert exc.value.status_code == 400
+    assert "API Base URL" in exc.value.detail
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_list_remote_models(common_router.ModelListRequest(api_base_url="https://api.example.com/v1", api_key="")))
+    assert exc.value.status_code == 400
+    assert "API Key" in exc.value.detail
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_list_remote_models(common_router.ModelListRequest(api_base_url="https://api.example.com/v1", api_key="sk-your-api-key-here")))
+    assert exc.value.status_code == 400
+    assert "API Key" in exc.value.detail
+
+
+def test_model_list_returns_sorted_model_ids(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "data": [
+                    {"id": "z-model", "owned_by": "openai"},
+                    {"id": "gpt-4o-mini"},
+                    {"id": "Alpha"},
+                    {"id": "gpt-4o-mini", "owned_by": "openai"},
+                ]
+            }
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router.requests, "get", fake_get)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = _run(common_router.api_list_remote_models(common_router.ModelListRequest(
+        api_base_url=" https://api.example.com/v1 ",
+        api_key=" sk-test ",
+    )))
+
+    assert captured == {
+        "url": "https://api.example.com/v1/models",
+        "headers": {"Authorization": "Bearer sk-test"},
+        "timeout": 15,
+    }
+    assert result == {
+        "models": [
+            {"id": "Alpha", "owned_by": None},
+            {"id": "gpt-4o-mini", "owned_by": "openai"},
+            {"id": "z-model", "owned_by": "openai"},
+        ]
+    }
+
+
+def test_model_list_keep_placeholder_uses_saved_api_key(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"data": [{"id": "gpt-4o-mini"}]}
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["headers"] = headers
+        return _FakeResponse()
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router.requests, "get", fake_get)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+    monkeypatch.setattr(
+        common_router,
+        "get_config",
+        lambda: _FakeCfg(models=[_FakeModel("main", api_key="sk-existing")], active=0),
+    )
+
+    result = _run(common_router.api_list_remote_models(common_router.ModelListRequest(
+        api_base_url="https://api.example.com/v1",
+        api_key=common_router._MODEL_API_KEY_KEEP,
+        model_index=0,
+    )))
+
+    assert captured["headers"] == {"Authorization": "Bearer sk-existing"}
+    assert result == {"models": [{"id": "gpt-4o-mini", "owned_by": None}]}
+
+
+def test_model_list_falls_back_from_compat_suffix(monkeypatch):
+    seen_urls: list[str] = []
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, body: object):
+            self.status_code = status_code
+            self._body = body
+            self.text = str(body)
+
+        def json(self):
+            return self._body
+
+    def fake_get(url, headers=None, timeout=None):
+        seen_urls.append(url)
+        if url.endswith("/anthropic/v1/models"):
+            return _FakeResponse(404, "not found")
+        return _FakeResponse(200, {"data": [{"id": "fallback-model", "owned_by": "provider"}]})
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router.requests, "get", fake_get)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = _run(common_router.api_list_remote_models(common_router.ModelListRequest(
+        api_base_url="https://api.example.com/anthropic",
+        api_key="sk-test",
+    )))
+
+    assert seen_urls == [
+        "https://api.example.com/anthropic/v1/models",
+        "https://api.example.com/v1/models",
+    ]
+    assert result == {"models": [{"id": "fallback-model", "owned_by": "provider"}]}
+
+
+def test_model_list_surfaces_provider_failure(monkeypatch):
+    class _FakeResponse:
+        status_code = 403
+        text = "request blocked"
+
+    def fake_get(url, headers=None, timeout=None):
+        return _FakeResponse()
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(common_router.requests, "get", fake_get)
+    monkeypatch.setattr(common_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    with pytest.raises(HTTPException) as exc:
+        _run(common_router.api_list_remote_models(common_router.ModelListRequest(
+            api_base_url="https://api.example.com/v1",
+            api_key="sk-test",
+        )))
+
+    assert exc.value.status_code == 502
+    assert "HTTP 403" in exc.value.detail
+    assert "request blocked" in exc.value.detail
+
+
+# ---------- Written exam mode: /api/start without device_id ------------------
+
+
+def test_start_rejects_no_device_in_normal_mode(monkeypatch):
+    assist_router = importlib.import_module("api.assist.routes")
+
+    monkeypatch.setattr(
+        assist_router, "get_config",
+        lambda: type("Cfg", (), {"written_exam_mode": False})(),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        _run(assist_router.api_start({}))
+
+    assert exc.value.status_code == 400
+
+
+def test_start_accepts_no_device_in_written_exam_mode(monkeypatch):
+    assist_router = importlib.import_module("api.assist.routes")
+
+    monkeypatch.setattr(
+        assist_router, "get_config",
+        lambda: type("Cfg", (), {"written_exam_mode": True})(),
+    )
+
+    start_called = {"v": False}
+
+    def fake_start_nonblocking(device_id):
+        start_called["v"] = True
+        assert device_id is None
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    monkeypatch.setattr(assist_router, "start_nonblocking", fake_start_nonblocking)
+    monkeypatch.setattr(assist_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = _run(assist_router.api_start({}))
+    assert result == {"ok": True}
+    assert start_called["v"] is True
+
+
+def test_start_passes_device_id_when_provided_in_exam_mode(monkeypatch):
+    assist_router = importlib.import_module("api.assist.routes")
+
+    monkeypatch.setattr(
+        assist_router, "get_config",
+        lambda: type("Cfg", (), {"written_exam_mode": True})(),
+    )
+
+    start_args = {"device_id": None}
+
+    def fake_start_nonblocking(device_id):
+        start_args["device_id"] = device_id
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    monkeypatch.setattr(assist_router, "start_nonblocking", fake_start_nonblocking)
+    monkeypatch.setattr(assist_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = _run(assist_router.api_start({"device_id": 5}))
+    assert result == {"ok": True}
+    assert start_args["device_id"] == 5
