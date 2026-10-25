@@ -1,0 +1,105 @@
+{
+  "name": "interview-assistant-desktop",
+  "version": "1.1.0",
+  "description": "面试Ace InterviewAce - Electron 桌面端",
+  "appDisplayName": "面试Ace",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "dist:mac": "electron-builder --mac dmg --arm64"
+  },
+  "devDependencies": {
+    "electron": "^41.3.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.interviewassistant.desktop",
+    "productName": "面试Ace",
+    "directories": {
+      "output": "../release"
+    },
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "shortcuts.js",
+      "windowOptions.js",
+      "multiScreenBatch.js",
+      "backendShutdown.js",
+      "updateCore.js",
+      "updater.js",
+      "portPicker.js",
+      "app-title.json",
+      "icon.png",
+      "package.json",
+      "!**/*.test.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../build/backend/interview-assistant-backend",
+        "to": "backend"
+      },
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      },
+      {
+        "from": "../backend/config.example.json",
+        "to": "backend/config.example.json"
+      },
+      {
+        "from": "../backend/assets",
+        "to": "backend/assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "icon.icns",
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "用于采集面试语音并进行实时转写。",
+        "NSScreenCaptureUsageDescription": "用于截取题目区域并提交给识图模型分析。"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "artifactName": "InterviewAssistant-Portable-${version}.${ext}"
+    }
+  }
+}
