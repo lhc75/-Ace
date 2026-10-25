@@ -14,6 +14,14 @@
   <img src="https://img.shields.io/badge/desktop-Electron-6D597A" alt="Electron" />
 </p>
 
+<p align="center">
+  <video src="docs/screenshots/assist-demo.webm" poster="docs/screenshots/assist-demo-poster.png" controls muted width="100%"></video>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/assist-demo.gif" alt="面试主流程演示：实时听题、自动作答、共享隐身、知识库引用" width="100%" />
+</p>
+
 ## 下载安装
 
 打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v1.1.0**，macOS Apple Silicon）。
@@ -46,6 +54,12 @@
 6. 空间紧张时按 `⌘⇧J / Ctrl+Shift+J` 折叠左侧转录面板，让回答区铺满。
 7. 桌面模式下配合悬浮问答窗、Boss Key 和共享隐身使用；笔试场景可切换笔试模式，悬浮窗逐题作答。
 
+## 主界面速览
+
+<p align="center">
+  <img src="docs/screenshots/assist-mode.png" alt="实时辅助主界面" width="100%" />
+</p>
+
 ## 关键能力雷达
 
 <table>
@@ -68,6 +82,19 @@
       <h3>求职材料</h3>
       <p>简历上传与摘要、JD 对照优化、求职看板（表格 / 看板双视图、拖拽排序）、Offer 对比，把面试前后动作收在一个工具里。</p>
     </td>
+  </tr>
+</table>
+
+## 模块画廊
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/knowledge-map.png" alt="能力分析" /></td>
+    <td width="50%"><img src="docs/screenshots/resume-optimizer.png" alt="简历优化" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>能力分析</strong><br /><sub>知识点趋势、问答沉淀、薄弱项复盘</sub></td>
+    <td align="center"><strong>简历优化</strong><br /><sub>把简历和 JD 放到一起，输出更像"能投出去"的版本</sub></td>
   </tr>
 </table>
 
