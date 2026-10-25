@@ -217,3 +217,27 @@ def test_old_soundcard_reader_cannot_write_to_or_stop_reopened_capture(monkeypat
         release_new.set()
         old_join(2)
         capture.stop(owner="assist")
+
+
+def test_list_devices_reinitializes_portaudio_when_idle(monkeypatch):
+    """热插拔修复: 空闲时枚举设备前先重建 PortAudio, 新插的耳机/多输出设备才能出现。"""
+    calls: list[str] = []
+    monkeypatch.setattr(audio_module.sd, "_terminate", lambda: calls.append("terminate"))
+    monkeypatch.setattr(audio_module.sd, "_initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(audio_module.sd, "query_devices", lambda: [])
+    monkeypatch.setattr(audio_module.audio_capture, "_running", False)
+
+    assert AudioCapture.list_devices() == []
+    assert calls == ["terminate", "initialize"]
+
+
+def test_list_devices_skips_reinit_while_capture_running(monkeypatch):
+    """采集进行中不能 terminate PortAudio, 否则会杀掉正在运行的流。"""
+    calls: list[str] = []
+    monkeypatch.setattr(audio_module.sd, "_terminate", lambda: calls.append("terminate"))
+    monkeypatch.setattr(audio_module.sd, "_initialize", lambda: calls.append("initialize"))
+    monkeypatch.setattr(audio_module.sd, "query_devices", lambda: [])
+    monkeypatch.setattr(audio_module.audio_capture, "_running", True)
+
+    assert AudioCapture.list_devices() == []
+    assert calls == []

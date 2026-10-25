@@ -431,6 +431,55 @@ def test_delete_review_data_is_blocked_while_active(status):
         review.delete_turn(session_id, turn_id)
 
 
+def test_delete_all_sessions_wipes_sessions_and_turns():
+    for index in range(3):
+        session_id = review.create_session(
+            started_at=time.time(),
+            interviewer_enabled=True,
+            candidate_enabled=True,
+        )
+        review.add_turn(
+            session_id=session_id,
+            qa_id=f"qa-{index}",
+            seq=1,
+            question_text=f"问题 {index}",
+            candidate_answer_text=f"回答 {index}",
+        )
+        review.end_session(session_id, status="completed")
+    assert review.list_sessions()["total"] == 3
+
+    assert review.delete_all_sessions() == 3
+    assert review.list_sessions()["total"] == 0
+
+    conn = review._conn()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM review_sessions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM review_turns").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("status", ["recording", "analyzing"])
+def test_delete_all_sessions_is_blocked_while_any_session_active(status):
+    done_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.end_session(done_id, status="completed")
+    busy_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.end_session(busy_id, status=status)
+
+    with pytest.raises(review.ReviewSessionBusyError, match="一键清空"):
+        review.delete_all_sessions()
+    # 一个进行中就整场拒绝, 已完成的那场也必须还在
+    assert review.list_sessions()["total"] == 2
+
+
 def test_update_turn_analysis_preserves_original_answer_when_corrected():
     session_id = review.create_session(
         started_at=time.time(),

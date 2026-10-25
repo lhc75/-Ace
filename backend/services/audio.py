@@ -130,6 +130,33 @@ def _get_sc_loopback_devices() -> list[dict]:
 # Resampling helpers (pure numpy – needed for sounddevice mics at 44100/48000)
 # ---------------------------------------------------------------------------
 
+def _reinit_portaudio() -> None:
+    """Re-initialize PortAudio so its device list is rebuilt.
+
+    PortAudio enumerates devices once at Pa_Initialize() and never notices
+    hot-plugged USB/Bluetooth headsets or a macOS multi-output device created
+    after the app started. Terminating and re-initializing forces a fresh
+    enumeration, so the refresh button works without restarting the app.
+    Must not be called while a PortAudio stream is open.
+    """
+    try:
+        sd._terminate()
+    except Exception as e:
+        _alog.debug("portaudio terminate failed: %s", e)
+    try:
+        sd._initialize()
+    except Exception as e:
+        _alog.warning("portaudio re-initialize failed: %s", e)
+
+
+def _maybe_refresh_portaudio() -> None:
+    """Re-enumerate devices when no capture is running on the singleton."""
+    with audio_capture._lock:
+        if audio_capture.is_running:
+            return
+        _reinit_portaudio()
+
+
 def _make_lowpass_fir(cutoff_norm: float, num_taps: int = 63) -> np.ndarray:
     n = np.arange(num_taps) - (num_taps - 1) / 2
     h = 2.0 * cutoff_norm * np.sinc(2.0 * cutoff_norm * n)
@@ -214,6 +241,7 @@ class AudioCapture:
 
     @staticmethod
     def list_devices() -> list[dict]:
+        _maybe_refresh_portaudio()
         devices = sd.query_devices()
         result = []
         system = platform.system()

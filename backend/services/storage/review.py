@@ -373,6 +373,33 @@ def delete_session(session_id: int) -> bool:
     return True
 
 
+def delete_all_sessions() -> int:
+    """Delete every review session and its turns. Returns the deleted count.
+
+    Refuses (ReviewSessionBusyError) while any session is recording or
+    analyzing, so a wipe can never kill in-flight work.
+    """
+    with _db() as conn:
+        busy = conn.execute(
+            "SELECT COUNT(*) AS c FROM review_sessions WHERE status IN ('recording', 'analyzing')",
+        ).fetchone()["c"]
+        if busy:
+            raise ReviewSessionBusyError("有正在录制或分析中的复盘，请先完成或停止后再一键清空")
+        rows = conn.execute(
+            "SELECT id, application_id FROM review_sessions",
+        ).fetchall()
+        links = [
+            (int(row["id"]), int(row["application_id"]))
+            for row in rows
+            if row["application_id"] is not None
+        ]
+        conn.execute("DELETE FROM review_turns")
+        conn.execute("DELETE FROM review_sessions")
+    for session_id, application_id in links:
+        _remove_review_todos_from_application(session_id, application_id)
+    return len(rows)
+
+
 def delete_turn(session_id: int, turn_id: int) -> bool:
     """Delete one turn, renumber the rest, and invalidate old analysis."""
     with _db() as conn:

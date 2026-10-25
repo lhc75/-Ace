@@ -152,6 +152,18 @@ async def delete_turn(session_id: int, turn_id: int):
         raise HTTPException(500, str(exc))
 
 
+@router.delete("/review/sessions")
+async def delete_all_sessions():
+    """一键清空全部复盘(录制中/分析中的复盘存在时拒绝)。"""
+    try:
+        deleted = review.delete_all_sessions()
+        return {"success": True, "deleted": deleted}
+    except review.ReviewSessionBusyError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
 @router.delete("/review/sessions/{session_id}")
 async def delete_session(session_id: int):
     """删除整场复盘。"""
