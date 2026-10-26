@@ -53,4 +53,4 @@ git tag "$TAG"
 git push origin master
 git push origin "$TAG"
 
-echo "[OK] 已推送 $TAG。GitHub Actions 正在云端打包，完成后 Releases 页面可见 $TAG。"
+echo "[OK] 已推送 ${TAG}。GitHub Actions 正在云端打包，完成后 Releases 页面可见 ${TAG}。"
