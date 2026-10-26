@@ -1,0 +1,631 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import WrittenExamTest from './WrittenExamTest'
+import { useInterviewStore } from '@/stores/configStore'
+
+const apiMock = vi.hoisted(() => ({
+  examPreflightRun: vi.fn(),
+  examPreflightStatus: vi.fn(),
+}))
+
+vi.mock('@/lib/api', () => ({ api: apiMock }))
+vi.mock('@/lib/backendUrl', () => ({ buildWsUrl: () => 'ws://example.test/ws' }))
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  onmessage: ((event: MessageEvent) => void) | null = null
+  closed = false
+  sent: string[] = []
+  constructor(public url: string) {
+    FakeWebSocket.instances.push(this)
+  }
+  close() {
+    this.closed = true
+  }
+  send(data: string) {
+    this.sent.push(data)
+  }
+  emit(data: unknown) {
+    this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent)
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+describe('WrittenExamTest', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.clearAllMocks()
+    vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket)
+    useInterviewStore.setState({
+      config: {
+        model_name: 'GPT-4.1 Vision',
+        models: [{ name: 'GPT-4.1 Vision', supports_vision: true, supports_think: true, enabled: true }],
+        active_model: 0,
+      },
+    } as any)
+    apiMock.examPreflightRun.mockResolvedValue({ ok: true })
+    apiMock.examPreflightStatus.mockResolvedValue({
+      question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+      steps: {},
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('starts fixed screenshot code preflight and renders answer result', async () => {
+    apiMock.examPreflightStatus
+      .mockResolvedValueOnce({
+        question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+        steps: {},
+      })
+      .mockResolvedValueOnce({
+        running: false,
+        question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+        steps: {
+          screenshot: { status: 'pass', detail: '已生成固定截图代码题' },
+          submit: { status: 'pass', detail: '已提交到笔试截图答题链路', model_name: 'GPT-4.1 Vision' },
+          llm: {
+            status: 'pass',
+            detail: '首 token 120ms · 完整 880ms',
+            question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+            answer: '```python\n# 哈希表一次遍历 O(n)\ndef two_sum(nums, target):\n    return []\n```',
+            first_token_ms: 120,
+            total_ms: 880,
+            model_name: 'GPT-4.1 Vision',
+          },
+          ws: { status: 'pass', detail: 'WebSocket 实时推送正常' },
+          ui: { status: 'pass', detail: '检测结果已推送到页面展示' },
+          done: { status: 'done', detail: '笔试链路检测完成' },
+        },
+      })
+    render(<WrittenExamTest />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+    expect(apiMock.examPreflightRun).toHaveBeenCalledTimes(1)
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({ type: 'exam_preflight_step', step: 'screenshot', status: 'pass', detail: '已生成固定截图代码题' })
+      ws.emit({ type: 'exam_preflight_step', step: 'submit', status: 'pass', detail: '已提交到笔试截图答题链路', model_name: 'GPT-4.1 Vision' })
+      ws.emit({
+        type: 'exam_preflight_step',
+        step: 'llm',
+        status: 'pass',
+        detail: '首 token 120ms · 完整 880ms',
+        question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+        answer: '```python\n# 哈希表一次遍历 O(n)\ndef two_sum(nums, target):\n    return []\n```',
+        first_token_ms: 120,
+        total_ms: 880,
+        model_name: 'GPT-4.1 Vision',
+      })
+      ws.emit({ type: 'exam_preflight_step', step: 'ws', status: 'pass', detail: 'WebSocket 实时推送正常' })
+      ws.emit({ type: 'exam_preflight_step', step: 'ui', status: 'pass', detail: '检测结果已推送到页面展示' })
+      ws.emit({ type: 'exam_preflight_step', step: 'done', status: 'done', detail: '完成' })
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('已生成固定截图代码题')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/def two_sum/)).toBeInTheDocument()
+    expect(screen.getAllByText(/首 token 120ms/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/完整 880ms/).length).toBeGreaterThan(0)
+    expect(screen.getByText('笔试链路畅通，可以开始了！')).toBeInTheDocument()
+    expect(apiMock.examPreflightStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores rapid duplicate preflight starts while the run request is pending', async () => {
+    const pendingRun = deferred<{ ok: boolean; preflight_id: string }>()
+    apiMock.examPreflightRun.mockReturnValueOnce(pendingRun.promise)
+
+    render(<WrittenExamTest />)
+
+    const startButton = screen.getByRole('button', { name: '开始检测' })
+    act(() => {
+      startButton.click()
+      startButton.click()
+    })
+
+    expect(apiMock.examPreflightRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '开始检测' })).toBeDisabled()
+
+    await act(async () => {
+      pendingRun.resolve({ ok: true, preflight_id: 'preflight-guarded' })
+      await pendingRun.promise
+    })
+
+    await act(async () => {
+      FakeWebSocket.instances[0].emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-guarded',
+        step: 'done',
+        status: 'done',
+        detail: '完成',
+      })
+      await Promise.resolve()
+    })
+
+    const nextStartButton = screen.getByRole('button', { name: '开始检测' })
+    expect(nextStartButton).toBeEnabled()
+    fireEvent.click(nextStartButton)
+    expect(apiMock.examPreflightRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a stale status hydration after a new preflight starts', async () => {
+    const staleStatus = deferred<Record<string, unknown>>()
+    apiMock.examPreflightStatus
+      .mockReturnValueOnce(staleStatus.promise)
+      .mockResolvedValueOnce({
+        running: true,
+        preflight_id: 'preflight-new',
+        steps: {
+          screenshot: { status: 'running', detail: 'new preflight is running' },
+        },
+      })
+    apiMock.examPreflightRun.mockResolvedValueOnce({ ok: true, preflight_id: 'preflight-new' })
+
+    render(<WrittenExamTest />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('new preflight is running')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      staleStatus.resolve({
+        running: false,
+        steps: {
+          screenshot: { status: 'pass', detail: 'stale preflight result' },
+        },
+      })
+      await staleStatus.promise
+    })
+
+    expect(screen.queryByText('stale preflight result')).not.toBeInTheDocument()
+    expect(screen.getByText('new preflight is running')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新' })).toBeDisabled()
+  })
+
+  it('does not let an older status hydration overwrite a terminal result', async () => {
+    const initialStatus = deferred<Record<string, unknown>>()
+    const staleRunningStatus = deferred<Record<string, unknown>>()
+    const completedStatus = deferred<Record<string, unknown>>()
+    apiMock.examPreflightStatus
+      .mockReturnValueOnce(initialStatus.promise)
+      .mockReturnValueOnce(staleRunningStatus.promise)
+      .mockReturnValueOnce(completedStatus.promise)
+    apiMock.examPreflightRun.mockResolvedValueOnce({ ok: true, preflight_id: 'preflight-race' })
+
+    render(<WrittenExamTest />)
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+
+    await waitFor(() => {
+      expect(apiMock.examPreflightStatus).toHaveBeenCalledTimes(2)
+    })
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-race',
+        step: 'screenshot',
+        status: 'pass',
+        detail: '截图已准备',
+      })
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-race',
+        step: 'submit',
+        status: 'pass',
+        detail: '题目已提交',
+      })
+      ws.emit({ type: 'answer_start', exam_preflight_id: 'preflight-race', model_name: 'GPT-4.1 Vision' })
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-race',
+        answer: 'terminal result survives hydration races',
+        first_token_ms: 120,
+        total_ms: 880,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(apiMock.examPreflightStatus).toHaveBeenCalledTimes(3)
+    })
+
+    await act(async () => {
+      completedStatus.resolve({
+        running: false,
+        preflight_id: 'preflight-race',
+        steps: {
+          screenshot: { status: 'pass', detail: '截图已准备' },
+          submit: { status: 'pass', detail: '题目已提交' },
+          llm: { status: 'pass', answer: 'terminal result survives hydration races' },
+          ws: { status: 'pass', detail: '推送完成' },
+          ui: { status: 'pass', detail: '展示完成' },
+          done: { status: 'done', detail: '完成' },
+        },
+      })
+      await completedStatus.promise
+    })
+
+    await act(async () => {
+      staleRunningStatus.resolve({
+        running: true,
+        preflight_id: 'preflight-race',
+        steps: { llm: { status: 'running', detail: '旧查询仍在生成' } },
+      })
+      await staleRunningStatus.promise
+    })
+
+    expect(screen.getByText('terminal result survives hydration races')).toBeInTheDocument()
+    expect(screen.getByText('笔试链路畅通，可以开始了！')).toBeInTheDocument()
+    expect(screen.queryByText('旧查询仍在生成')).not.toBeInTheDocument()
+  })
+
+  it('polls status while running so missed websocket completion still recovers', async () => {
+    vi.useFakeTimers()
+    apiMock.examPreflightRun.mockResolvedValueOnce({ ok: true, preflight_id: 'preflight-poll' })
+    apiMock.examPreflightStatus
+      .mockResolvedValueOnce({ running: false, steps: {} })
+      .mockResolvedValueOnce({
+        running: true,
+        preflight_id: 'preflight-poll',
+        steps: {
+          screenshot: { status: 'pass', detail: '截图已准备' },
+          submit: { status: 'running', detail: '等待 worker' },
+          llm: { status: 'running', detail: '等待模型' },
+        },
+      })
+      .mockResolvedValueOnce({
+        running: false,
+        preflight_id: 'preflight-poll',
+        steps: {
+          screenshot: { status: 'pass', detail: '截图已准备' },
+          submit: { status: 'pass', detail: '题目已提交' },
+          llm: { status: 'pass', detail: '完整 880ms', answer: 'poll recovered answer' },
+          ws: { status: 'pass', detail: '推送完成' },
+          ui: { status: 'pass', detail: '展示完成' },
+          done: { status: 'done', detail: '完成' },
+        },
+      })
+
+    render(<WrittenExamTest />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('等待模型')).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('poll recovered answer')).toBeInTheDocument()
+    expect(screen.getByText('笔试链路畅通，可以开始了！')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新' })).toBeEnabled()
+  })
+
+  it('replies to backend websocket heartbeats', async () => {
+    render(<WrittenExamTest />)
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({ type: 'ping', ts: 123 })
+      await Promise.resolve()
+    })
+
+    expect(ws.sent).toEqual([JSON.stringify({ type: 'pong' })])
+  })
+
+  it('hydrates a completed preflight result on mount', async () => {
+    apiMock.examPreflightStatus.mockResolvedValueOnce({
+      running: false,
+      finished_at: 1710000000,
+      question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+      steps: {
+        screenshot: { status: 'pass', detail: '已生成固定截图代码题' },
+        submit: { status: 'pass', detail: '已提交到笔试截图答题链路', model_name: 'GPT-4.1 Vision' },
+        llm: {
+          status: 'pass',
+          detail: '首 token 120ms · 完整 880ms',
+          question: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+          answer: '```python\ndef two_sum(nums, target):\n    return []\n```',
+          first_token_ms: 120,
+          total_ms: 880,
+          model_name: 'GPT-4.1 Vision',
+        },
+        ws: { status: 'pass', detail: 'WebSocket 实时推送正常' },
+        ui: { status: 'pass', detail: '检测结果已推送到页面展示' },
+        done: { status: 'done', detail: '笔试链路检测完成' },
+      },
+    })
+
+    render(<WrittenExamTest />)
+
+    await waitFor(() => {
+      expect(screen.getByText('已生成固定截图代码题')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/def two_sum/)).toBeInTheDocument()
+    expect(screen.getByText('笔试链路畅通，可以开始了！')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新' })).toBeEnabled()
+  })
+
+  it('keeps one websocket while filtering stale preflight streams', async () => {
+    render(<WrittenExamTest />)
+
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    const ws = FakeWebSocket.instances[0]
+
+    await act(async () => {
+      ws.emit({
+        type: 'answer_start',
+        exam_preflight_id: 'preflight-current',
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    expect(ws.closed).toBe(false)
+    expect(screen.getByText('真实答题 worker 已开始流式回答')).toBeInTheDocument()
+    expect(screen.getByText('已收到答题启动事件，等待模型流式片段…')).toBeInTheDocument()
+
+    await act(async () => {
+      ws.emit({
+        type: 'answer_think_chunk',
+        exam_preflight_id: 'preflight-current',
+        chunk: '思考中...',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('已收到真实答题 WebSocket 流式片段，等待模型生成完成…')).toBeInTheDocument()
+
+    await act(async () => {
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-old',
+        step: 'screenshot',
+        status: 'pass',
+        detail: 'stale screenshot should also be ignored',
+      })
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-old',
+        answer: 'stale answer should be ignored',
+        first_token_ms: 9,
+        total_ms: 10,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('stale answer should be ignored')).not.toBeInTheDocument()
+
+    await act(async () => {
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-current',
+        answer: 'current answer is rendered',
+        first_token_ms: 120,
+        total_ms: 880,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('current answer is rendered')).toBeInTheDocument()
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  it('does not regress completed steps when duplicate running events arrive late', async () => {
+    render(<WrittenExamTest />)
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-terminal',
+        step: 'screenshot',
+        status: 'pass',
+        detail: '截图已准备',
+      })
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-terminal',
+        step: 'submit',
+        status: 'pass',
+        detail: '题目已提交',
+      })
+      ws.emit({
+        type: 'answer_start',
+        exam_preflight_id: 'preflight-terminal',
+        model_name: 'GPT-4.1 Vision',
+      })
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-terminal',
+        answer: 'completed answer must remain visible',
+        first_token_ms: 120,
+        total_ms: 880,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      ws.emit({
+        type: 'exam_preflight_step',
+        preflight_id: 'preflight-terminal',
+        step: 'llm',
+        status: 'running',
+        detail: '迟到的 LLM running 事件',
+      })
+      ws.emit({
+        type: 'answer_chunk',
+        exam_preflight_id: 'preflight-terminal',
+        chunk: '迟到的流式片段',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('completed answer must remain visible')).toBeInTheDocument()
+    expect(screen.getByText('笔试链路畅通，可以开始了！')).toBeInTheDocument()
+    expect(screen.queryByText('迟到的 LLM running 事件')).not.toBeInTheDocument()
+  })
+
+  it('marks answer errors on the LLM and UI preflight steps', async () => {
+    render(<WrittenExamTest />)
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({
+        type: 'answer_start',
+        exam_preflight_id: 'preflight-error',
+        model_name: 'GPT-4.1 Vision',
+      })
+      ws.emit({
+        type: 'answer_error',
+        exam_preflight_id: 'preflight-error',
+        message: '模型调用超时',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getAllByText('模型调用超时').length).toBeGreaterThan(0)
+    expect(screen.getByText('已收到真实答题错误事件')).toBeInTheDocument()
+    expect(screen.getByText('未收到可展示的笔试答案')).toBeInTheDocument()
+    expect(screen.getByText('部分环节异常，请检查配置后重试')).toBeInTheDocument()
+  })
+
+  it('marks startup request failures as failed preflight steps', async () => {
+    apiMock.examPreflightRun.mockRejectedValueOnce(new Error('笔试链路检测已在运行中'))
+    render(<WrittenExamTest />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText('笔试链路检测已在运行中').length).toBeGreaterThan(0)
+    })
+    expect(screen.getByText('未收到可展示的笔试答案')).toBeInTheDocument()
+    expect(screen.getByText('部分环节异常，请检查配置后重试')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新' })).toBeEnabled()
+  })
+
+  it('ignores stale stream events while waiting for the new preflight id', async () => {
+    render(<WrittenExamTest />)
+
+    const ws = FakeWebSocket.instances[0]
+    await act(async () => {
+      ws.emit({
+        type: 'answer_start',
+        exam_preflight_id: 'preflight-old',
+        model_name: 'GPT-4.1 Vision',
+      })
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-old',
+        answer: 'old answer is rendered',
+        first_token_ms: 100,
+        total_ms: 500,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('old answer is rendered')).toBeInTheDocument()
+
+    const pendingRun = deferred<{ ok: boolean; preflight_id: string }>()
+    apiMock.examPreflightRun.mockReturnValueOnce(pendingRun.promise)
+    fireEvent.click(screen.getByRole('button', { name: '重新' }))
+
+    await act(async () => {
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-old',
+        answer: 'stale answer should still be ignored',
+        first_token_ms: 9,
+        total_ms: 10,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('stale screenshot should also be ignored')).not.toBeInTheDocument()
+    expect(screen.queryByText('stale answer should still be ignored')).not.toBeInTheDocument()
+
+    await act(async () => {
+      pendingRun.resolve({ ok: true, preflight_id: 'preflight-next' })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      ws.emit({
+        type: 'answer_done',
+        exam_preflight_id: 'preflight-next',
+        answer: 'next answer is rendered',
+        first_token_ms: 120,
+        total_ms: 880,
+        model_name: 'GPT-4.1 Vision',
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('next answer is rendered')).toBeInTheDocument()
+    expect(screen.queryByText('old answer is rendered')).not.toBeInTheDocument()
+  })
+
+  it('hydrates failed preflight status into visible failed steps', async () => {
+    apiMock.examPreflightStatus.mockResolvedValueOnce({
+      running: false,
+      error: '检测异常: 模型回答为空',
+      preflight_id: 'preflight-failed',
+      steps: {
+        screenshot: { status: 'pass', detail: '已生成固定截图代码题' },
+        submit: { status: 'pass', detail: '已进入真实截图答题 worker' },
+        error: { status: 'fail', detail: '检测异常: 模型回答为空' },
+      },
+    })
+
+    render(<WrittenExamTest />)
+
+    expect((await screen.findAllByText('检测异常: 模型回答为空')).length).toBeGreaterThan(0)
+    expect(screen.getByText('未收到可展示的笔试答案')).toBeInTheDocument()
+    expect(screen.getByText('部分环节异常，请检查配置后重试')).toBeInTheDocument()
+  })
+
+  it('warns when no vision model is configured', () => {
+    useInterviewStore.setState({
+      config: {
+        model_name: 'Text Model',
+        models: [{ name: 'Text Model', supports_vision: false, supports_think: false, enabled: true }],
+        active_model: 0,
+      },
+    } as any)
+
+    render(<WrittenExamTest />)
+
+    expect(screen.getByText('固定截图代码题需要支持视觉的模型。')).toBeInTheDocument()
+  })
+})

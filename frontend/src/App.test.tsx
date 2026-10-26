@@ -1,0 +1,304 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import App from './App'
+import { useInterviewStore } from '@/stores/configStore'
+import { useUiPrefsStore } from '@/stores/uiPrefsStore'
+
+
+const apiMock = vi.hoisted(() => ({
+  getConfig: vi.fn(),
+  getDevices: vi.fn(),
+  getOptions: vi.fn(),
+  checkModelsHealth: vi.fn(),
+  kbStatus: vi.fn(),
+  updateConfig: vi.fn(),
+  askFromServerScreen: vi.fn(),
+}))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+vi.mock('@/lib/api', () => ({
+  api: apiMock,
+}))
+
+vi.mock('@/hooks/useInterviewWS', () => ({
+  useInterviewWS: () => undefined,
+}))
+
+vi.mock('@/components/TranscriptionPanel', () => ({ default: () => <div>transcript</div> }))
+vi.mock('@/components/AnswerPanel', () => ({ default: () => <div>answer</div> }))
+vi.mock('@/components/ControlBar', () => ({ default: () => <div>controls</div> }))
+vi.mock('@/components/SettingsDrawer', () => ({ default: () => null }))
+vi.mock('@/components/KnowledgeMap', () => ({ default: () => <div>knowledge</div> }))
+vi.mock('@/components/ResumeOptimizer', () => ({ default: () => <div>resume</div> }))
+vi.mock('@/components/JobTracker', () => ({ default: () => <div>jobs</div> }))
+
+
+describe('App bootstrap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useInterviewStore.setState({
+      config: null,
+      devices: [],
+      options: null,
+      sttLoaded: false,
+      sttLoading: true,
+      sttActiveProvider: '',
+      sttFallbackLoaded: false,
+      modelHealth: {},
+      modelHealthDetail: {},
+      modelHealthLatency: {},
+      tokenUsage: { prompt: 0, completion: 0, total: 0, byModel: {} },
+      fallbackToast: null,
+      toastMessage: null,
+      settingsOpen: false,
+      qaPairs: [],
+      streamingIds: [],
+      currentStreamingId: null,
+      transcriptions: [],
+      isPaused: false,
+      wsConnected: true,
+    } as any)
+    useUiPrefsStore.setState({ appMode: 'assist' })
+    apiMock.getConfig.mockResolvedValue({
+      models: [{ name: 'demo', supports_vision: false }],
+      active_model: 0,
+      api_key_set: true,
+      think_mode: false,
+      think_effort: 'off',
+      stt_provider: 'whisper',
+    })
+    apiMock.getDevices.mockResolvedValue({ devices: [], platform: null })
+    apiMock.getOptions.mockResolvedValue({ positions: [], languages: [] })
+    apiMock.checkModelsHealth.mockResolvedValue(undefined)
+    apiMock.updateConfig.mockResolvedValue({ ok: true })
+    apiMock.askFromServerScreen.mockResolvedValue({ ok: true })
+    apiMock.kbStatus.mockResolvedValue({
+      enabled: false,
+      total_docs: 0,
+      total_chunks: 0,
+      deadline_ms: 150,
+      asr_deadline_ms: 80,
+      deps: { docx: false, pdf: false, ocr: false, vision: false },
+    })
+  })
+
+  it('renders the init error view when config bootstrap fails', async () => {
+    apiMock.getConfig.mockRejectedValue(new Error('backend down'))
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByText('连接后端失败')).toBeInTheDocument()
+    })
+    expect(screen.getByText('backend down')).toBeInTheDocument()
+    expect(screen.getByText(/正在请求 \/api\/config/)).toBeInTheDocument()
+    expect(screen.getByText(/确认后端服务已启动/)).toBeInTheDocument()
+  })
+
+  it('keeps rendering the app when non-critical bootstrap requests fail', async () => {
+    apiMock.getDevices.mockRejectedValue(new Error('devices down'))
+    apiMock.getOptions.mockRejectedValue(new Error('options down'))
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: '实时辅助' })).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('连接后端失败')).not.toBeInTheDocument()
+  })
+
+  it('prevents duplicate mobile server screen asks while one is in flight', async () => {
+    let resolveAsk: ((value: unknown) => void) | null = null
+    const pendingAsk = new Promise((resolve) => {
+      resolveAsk = resolve
+    })
+    apiMock.askFromServerScreen.mockReturnValueOnce(pendingAsk)
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'AI 答案' }))
+    const screenAsk = screen.getByRole('button', { name: '服务端截图审题' })
+
+    act(() => {
+      screenAsk.click()
+      screenAsk.click()
+    })
+
+    expect(apiMock.askFromServerScreen).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '截图审题提交中…' })).toBeDisabled()
+
+    await act(async () => {
+      if (!resolveAsk) throw new Error('server screen ask resolver was not captured')
+      resolveAsk({ ok: true })
+      await pendingAsk
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '服务端截图审题' })).not.toBeDisabled()
+    })
+  })
+
+  it('switches mobile written-exam view to the answer tab when a question starts', async () => {
+    const originalInnerWidth = window.innerWidth
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    apiMock.getConfig.mockResolvedValue({
+      models: [{ name: 'demo', supports_vision: true, enabled: true }],
+      active_model: 0,
+      api_key_set: true,
+      written_exam_mode: true,
+      think_mode: false,
+      think_effort: 'off',
+      stt_provider: 'whisper',
+    })
+
+    try {
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: '答题记录' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'AI 答案' })).toBeInTheDocument()
+      })
+      expect(screen.getByRole('button', { name: '答题记录' })).toHaveClass('border-accent-blue')
+      expect(screen.getByRole('button', { name: 'AI 答案' })).not.toHaveClass('border-accent-blue')
+
+      act(() => {
+        useInterviewStore.getState().startAnswer('qa-exam-1', '截图题', {
+          source: 'server_screen_single',
+          modelName: 'demo',
+        })
+      })
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'AI 答案' })).toHaveClass('border-accent-blue')
+        expect(screen.getByRole('button', { name: '答题记录' })).not.toHaveClass('border-accent-blue')
+      })
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+    }
+  })
+})
+
+describe('Window control buttons', () => {
+  const minimizeSpy = vi.fn()
+  const quitSpy = vi.fn()
+  const originalElectronAPI = window.electronAPI
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useInterviewStore.setState({
+      config: null,
+      devices: [],
+      options: null,
+      sttLoaded: false,
+      sttLoading: true,
+      sttActiveProvider: '',
+      sttFallbackLoaded: false,
+      modelHealth: {},
+      modelHealthDetail: {},
+      modelHealthLatency: {},
+      tokenUsage: { prompt: 0, completion: 0, total: 0, byModel: {} },
+      fallbackToast: null,
+      toastMessage: null,
+      settingsOpen: false,
+      qaPairs: [],
+      streamingIds: [],
+      currentStreamingId: null,
+      transcriptions: [],
+      isPaused: false,
+      wsConnected: true,
+    } as any)
+    useUiPrefsStore.setState({ appMode: 'assist' })
+    apiMock.getConfig.mockResolvedValue({
+      models: [{ name: 'demo', supports_vision: false }],
+      active_model: 0,
+      api_key_set: true,
+      think_mode: false,
+      think_effort: 'off',
+      stt_provider: 'whisper',
+    })
+    apiMock.getDevices.mockResolvedValue({ devices: [], platform: null })
+    apiMock.getOptions.mockResolvedValue({ positions: [], languages: [] })
+    apiMock.checkModelsHealth.mockResolvedValue(undefined)
+    apiMock.updateConfig.mockResolvedValue({ ok: true })
+    apiMock.askFromServerScreen.mockResolvedValue({ ok: true })
+    apiMock.kbStatus.mockResolvedValue({
+      enabled: false,
+      total_docs: 0,
+      total_chunks: 0,
+      deadline_ms: 150,
+      asr_deadline_ms: 80,
+      deps: { docx: false, pdf: false, ocr: false, vision: false },
+    })
+    minimizeSpy.mockReset()
+    quitSpy.mockReset()
+  })
+
+  afterEach(() => {
+    window.electronAPI = originalElectronAPI
+  })
+
+  it('does not show window control buttons when electronAPI is absent', async () => {
+    delete (window as any).electronAPI
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: '实时辅助' })).toBeInTheDocument()
+    })
+
+    expect(screen.queryByRole('button', { name: '最小化窗口' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '退出应用' })).not.toBeInTheDocument()
+  })
+
+  it('shows minimize and quit buttons when electronAPI is present', async () => {
+    window.electronAPI = {
+      minimizeWindow: minimizeSpy,
+      quitApp: quitSpy,
+    } as any
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '最小化窗口' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '退出应用' })).toBeInTheDocument()
+  })
+
+  it('calls electronAPI.minimizeWindow when minimize button is clicked', async () => {
+    window.electronAPI = {
+      minimizeWindow: minimizeSpy,
+      quitApp: quitSpy,
+    } as any
+
+    render(<App />)
+
+    const btn = await screen.findByRole('button', { name: '最小化窗口' })
+    fireEvent.click(btn)
+
+    expect(minimizeSpy).toHaveBeenCalledTimes(1)
+    expect(quitSpy).not.toHaveBeenCalled()
+  })
+
+  it('calls electronAPI.quitApp when quit button is clicked', async () => {
+    window.electronAPI = {
+      minimizeWindow: minimizeSpy,
+      quitApp: quitSpy,
+    } as any
+
+    render(<App />)
+
+    const btn = await screen.findByRole('button', { name: '退出应用' })
+    fireEvent.click(btn)
+
+    expect(quitSpy).toHaveBeenCalledTimes(1)
+    expect(minimizeSpy).not.toHaveBeenCalled()
+  })
+})
