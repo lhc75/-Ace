@@ -281,7 +281,6 @@ def _group_by_variant_cat(
 def _summary_table(
     results: list[RunResult],
     cases: list[dict[str, Any]],
-    models: list[Any],
 ) -> str:
     by_cat = _group_by_variant_cat(results, cases)
     variants = sorted({r.variant for r in results})
@@ -369,7 +368,7 @@ def _format_report(
     lines.append("")
     lines.append("## Summary")
     lines.append("")
-    lines.append(_summary_table(results, cases, models))
+    lines.append(_summary_table(results, cases))
     lines.append("")
     lines.append("## Per-Case")
     lines.append("")

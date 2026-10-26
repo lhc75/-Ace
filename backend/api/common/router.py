@@ -65,13 +65,11 @@ def _stt_provider_signature(cfg, provider: str) -> tuple:
 # 避免恶意客户端发送 GB 级 body 把整个文件读进内存触发 OOM.
 _RESUME_UPLOAD_CHUNK = 1 * 1024 * 1024
 
-def _reset_stt_circuits_on_signature_change(cfg_a, cfg_b, *, only_remote: bool = False):
+def _reset_stt_circuits_on_signature_change(cfg_a, cfg_b):
     """两个配置快照间 STT 签名变化时重置对应熔断器 (面试官/候选人两路)。"""
     for scope, field in (("interviewer", "stt_provider"), ("candidate", "candidate_stt_provider")):
         provider_a = getattr(cfg_a, field, "whisper")
         provider_b = getattr(cfg_b, field, "whisper")
-        if only_remote and provider_a not in REMOTE_STT_PROVIDERS:
-            continue
         if (
             _stt_provider_signature(cfg_a, provider_a)
             != _stt_provider_signature(cfg_b, provider_b)

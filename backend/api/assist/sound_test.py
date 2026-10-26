@@ -136,11 +136,7 @@ def collect_capture_audio(cap: AudioCapture, duration_sec: float, poll_interval:
 
 
 def play_preflight_audio() -> float:
-    if not PREFLIGHT_AUDIO_PATH.exists():
-        raise RuntimeError(f"测试音频不存在: {PREFLIGHT_AUDIO_PATH}")
-    started = time.monotonic()
-    play_audio_file(PREFLIGHT_AUDIO_PATH)
-    return time.monotonic() - started
+    return play_audio_fixture()
 
 
 def play_audio_fixture(audio_path: str | Path | None = None) -> float:

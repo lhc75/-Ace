@@ -38,7 +38,6 @@ def setup_retriever(tmp_path, monkeypatch):
 
     indexer.reset()
     indexer.reindex()
-    retriever.reset()
     yield retriever
     indexer.reset()
 
@@ -157,7 +156,6 @@ def setup_multi_doc(tmp_path, monkeypatch):
 
     indexer.reset()
     indexer.reindex()
-    retriever.reset()
     yield retriever
     indexer.reset()
 

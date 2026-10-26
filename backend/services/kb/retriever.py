@@ -53,11 +53,6 @@ _SYNONYM_GROUPS: tuple[tuple[str, ...], ...] = (
 )
 
 
-def reset() -> None:
-    """测试辅助。retriever 目前无自己单例。"""
-    return
-
-
 def _normalize_query(query: str) -> str:
     q = (query or "").strip()
     if not q:
@@ -291,4 +286,4 @@ def retrieve(
     return hits
 
 
-__all__ = ["retrieve", "reset"]
+__all__ = ["retrieve"]
