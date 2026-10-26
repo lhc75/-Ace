@@ -388,3 +388,16 @@ def test_finish_is_idempotent(monkeypatch):
     finish_tasks = [m for m in ws.sent if isinstance(m, dict) and m["header"]["action"] == "finish-task"]
     assert len(finish_tasks) == 1
     assert events["state"].count("closed") == 1
+
+
+def test_send_loop_keepalive_silence_during_audio_gap(monkeypatch):
+    """音频空窗超过阈值时自动补静音块，防服务端无音频超时关任务。"""
+    monkeypatch.setattr(AliyunInterviewerStream, "SEND_IDLE_KEEPALIVE_SEC", 0.05)
+    ws = FakeWebSocket()
+    _patch_ws(monkeypatch, ws)
+    stream = _make_stream(_collect())
+    stream.start()
+    try:
+        _wait_for(lambda: ws.binary_count > 0, timeout=2.0)
+    finally:
+        stream.abort()

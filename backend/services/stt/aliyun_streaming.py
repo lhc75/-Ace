@@ -52,6 +52,8 @@ class AliyunInterviewerStream:
     SEND_QUEUE_MAX = 50          # 约 5 秒的 100ms 音频块；写满时丢弃最旧块
     _RECV_POLL_SEC = 1.0         # 单次 recv 的轮询粒度，便于及时响应 abort()
     PING_INTERVAL_SEC = 25.0     # 长连接保活：静默期下行无流量，NAT/代理会按空闲断链
+    SEND_IDLE_KEEPALIVE_SEC = 10.0  # 音频空窗超过该值时补静音块，防服务端 ~23s 无音频超时关任务
+    _KEEPALIVE_PCM = b"\x00" * 3200  # 100ms 16kHz int16 静音
 
     def __init__(
         self,
@@ -341,13 +343,28 @@ class AliyunInterviewerStream:
                 return
 
     def _send_loop(self) -> None:
-        """发送线程：从队列取音频写入 socket；收到 None 哨兵说明该发 finish-task 了。"""
+        """发送线程：从队列取音频写入 socket；收到 None 哨兵说明该发 finish-task 了。
+
+        音频空窗超过 SEND_IDLE_KEEPALIVE_SEC 时补发静音块：实测服务端对
+        连续约 23 秒无音频的任务会以 CLIENT_ERROR(request timeout) 关闭。
+        正常采集时音频块是连续的，该兜底只在采集卡顿时介入。
+        """
+        last_audio_mono = time.monotonic()
         try:
             while not self._dead.is_set():
                 try:
                     item = self._send_q.get(timeout=0.2)
                 except queue.Empty:
+                    if (
+                        not self._finishing.is_set()
+                        and self._started.is_set()
+                        and not self._terminal.is_set()
+                        and time.monotonic() - last_audio_mono >= self.SEND_IDLE_KEEPALIVE_SEC
+                    ):
+                        self._ws.send_binary(self._KEEPALIVE_PCM)
+                        last_audio_mono = time.monotonic()
                     continue
+                last_audio_mono = time.monotonic()
                 if item is None:
                     self._ws.send(json.dumps({
                         "header": {"task_id": self._task_id, "streaming": "duplex", "action": "finish-task"},
