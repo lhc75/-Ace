@@ -71,6 +71,7 @@
       "icon": "icon.png"
     },
     "mac": {
+      "artifactName": "InterviewAce-${version}-arm64.${ext}",
       "target": [
         {
           "target": "dmg",
@@ -93,6 +94,7 @@
       }
     },
     "nsis": {
+      "artifactName": "InterviewAce-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
