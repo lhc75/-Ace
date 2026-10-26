@@ -195,7 +195,7 @@ export default function SettingsDrawer() {
       <div ref={drawerRef} role="dialog" aria-modal="true" aria-labelledby="settings-title" className="app-no-drag fixed inset-0 z-50 flex bg-bg-primary">
         {/* ── 左侧菜单列 ── */}
         <div className="flex w-[200px] md:w-[230px] flex-shrink-0 flex-col border-r-[0.5px] border-bg-hover bg-bg-tertiary/40">
-          <div className="flex h-12 items-center gap-1 px-2.5 flex-shrink-0">
+          <div className="app-drag-region flex h-12 items-center gap-1 px-2.5 flex-shrink-0">
             <button
               type="button"
               onClick={closeSettings}
@@ -277,7 +277,7 @@ export default function SettingsDrawer() {
 
         {/* ── 右侧内容列 ── */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex h-12 flex-shrink-0 items-center border-b-[0.5px] border-bg-hover px-5">
+          <div className="app-drag-region flex h-12 flex-shrink-0 items-center border-b-[0.5px] border-bg-hover px-5">
             <span className="text-sm font-medium text-text-primary">{activeTabLabel}</span>
           </div>
           <div ref={contentRef} className="flex-1 overflow-y-auto min-h-0">

@@ -199,4 +199,15 @@ describe('SettingsDrawer', () => {
 
     expect(await screen.findByText('未保存：语音配置')).toBeInTheDocument()
   })
+
+  it('keeps header bars draggable so the window can move while settings is open', () => {
+    render(<SettingsDrawer />)
+
+    const dialog = screen.getByRole('dialog')
+    // 全屏设置页盖住主窗口的拖区域, 左右两条顶栏必须自己提供 drag region
+    expect(screen.getByRole('heading', { name: '设置' }).closest('.app-drag-region')).not.toBeNull()
+    expect(dialog.querySelector('.flex-1 > .app-drag-region')).not.toBeNull()
+    // 返回按钮在 drag region 内仍保持 no-drag (index.css 后代规则), 可正常点击
+    expect(screen.getByRole('button', { name: '返回' }).closest('.app-drag-region')).not.toBeNull()
+  })
 })
