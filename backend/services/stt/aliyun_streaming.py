@@ -51,6 +51,7 @@ class AliyunInterviewerStream:
     INTERIM_THROTTLE_MS = 120    # 中间结果最小推送间隔，避免每个字都刷新界面
     SEND_QUEUE_MAX = 50          # 约 5 秒的 100ms 音频块；写满时丢弃最旧块
     _RECV_POLL_SEC = 1.0         # 单次 recv 的轮询粒度，便于及时响应 abort()
+    PING_INTERVAL_SEC = 25.0     # 长连接保活：静默期下行无流量，NAT/代理会按空闲断链
 
     def __init__(
         self,
@@ -88,6 +89,8 @@ class AliyunInterviewerStream:
         self._task_id = ""
         self._sender: Optional[threading.Thread] = None
         self._receiver: Optional[threading.Thread] = None
+        self._pinger: Optional[threading.Thread] = None
+        self._ping_stop = threading.Event()
 
         # 中间结果节流状态，只在接收线程读写
         self._last_emit_mono = 0.0
@@ -182,6 +185,7 @@ class AliyunInterviewerStream:
                 timeout=self.CONNECT_TIMEOUT_SEC,
                 enable_multithread=True,
             )
+            self._start_ping()
             self._ws.send(json.dumps(run_task))
             startup_deadline = time.monotonic() + self.START_TIMEOUT_SEC
             while True:
@@ -189,9 +193,11 @@ class AliyunInterviewerStream:
                 if message and message["header"].get("event") == "task-started":
                     break
         except AliyunSTTError:
+            self._stop_ping()
             self._close_ws()
             raise
         except Exception as error:
+            self._stop_ping()
             self._close_ws()
             raise _transport_error(error, self.api_key) from None
 
@@ -258,6 +264,7 @@ class AliyunInterviewerStream:
     def _teardown(self) -> None:
         already_dead = self._dead.is_set()
         self._dead.set()
+        self._stop_ping()
         self._close_ws()
         for thread in (self._sender, self._receiver):
             if thread is not None and thread.is_alive() and thread is not threading.current_thread():
@@ -305,6 +312,33 @@ class AliyunInterviewerStream:
         if header.get("event") == "task-failed":
             raise _classify_task_failed(header, self.api_key, timeout_is_terminal=False)
         return message
+
+    def _start_ping(self) -> None:
+        """启动 WebSocket 协议层心跳（websocket-client 裸连接不带自动 ping，
+        只有 WebSocketApp 有），保活并在连接死掉时尽快进入终态触发上层重连。"""
+        self._pinger = threading.Thread(target=self._ping_loop, name="aliyun-stream-ping", daemon=True)
+        self._pinger.start()
+
+    def _stop_ping(self) -> None:
+        self._ping_stop.set()
+        thread = self._pinger
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+    def _ping_loop(self) -> None:
+        while not self._ping_stop.wait(self.PING_INTERVAL_SEC):
+            if self._dead.is_set():
+                return
+            try:
+                if self._ws is not None:
+                    self._ws.ping()
+            except Exception as error:
+                if not self._dead.is_set():
+                    self._log.warning("Aliyun stream ping failed: %s", error)
+                    self._mark_terminal(
+                        AliyunSTTConnectionError(f"阿里千问 ASR 心跳失败（连接已断开）: {error}")
+                    )
+                return
 
     def _send_loop(self) -> None:
         """发送线程：从队列取音频写入 socket；收到 None 哨兵说明该发 finish-task 了。"""
