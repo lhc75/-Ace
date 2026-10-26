@@ -9,6 +9,7 @@ const {
   parseReleasePayload,
   resolveDownloadPlan,
   shouldNotify,
+  parseHdiutilMountPoint,
 } = require('./updateCore');
 
 test('release sources are GitHub first with Gitee fallback', () => {
@@ -106,4 +107,18 @@ test('shouldNotify only for newer, non-skipped versions', () => {
   assert.equal(shouldNotify('1.0.12', release, '1.1.0'), false);
   assert.equal(shouldNotify('1.0.12', release, '1.0.9'), true);
   assert.equal(shouldNotify('1.0.12', null, null), false);
+});
+
+// ---- parseHdiutilMountPoint ----
+test('parseHdiutilMountPoint extracts mount point from hdiutil plist output', () => {
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>system-entities</key><array>
+<dict><key>content-hint</key><string>GUID_partition_scheme</string></dict>
+<dict><key>dev-entry</key><string>/dev/disk4s2</string>
+<key>mount-point</key>
+<string>/Volumes/面试Ace</string></dict>
+</array></dict></plist>`;
+  assert.equal(parseHdiutilMountPoint(plist), '/Volumes/面试Ace');
+  assert.equal(parseHdiutilMountPoint('<plist><dict></dict></plist>'), null);
+  assert.equal(parseHdiutilMountPoint(''), null);
 });

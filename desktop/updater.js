@@ -1,7 +1,8 @@
 // 应用更新：启动后定时检查 Gitee 最新 Release，发现新版本经 IPC 通知渲染进程，
-// 用户确认后下载 dmg 并打开安装包（macOS 未签名包无法走 Squirrel 自动替换，
-// 因此采用「下载 + 打开 dmg + 提示拖入应用程序」的半自动升级）。
+// 用户确认后下载 dmg 并自动安装: 挂载镜像 → ditto 覆盖 .app → relaunch 重启。
+// 自动安装失败(权限/非常规安装位置)时回退「打开 dmg 手动拖装」。
 const { app, ipcMain, shell, net } = require('electron');
+const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -11,6 +12,7 @@ const {
   resolveDownloadPlan,
   shouldNotify,
   compareVersions,
+  parseHdiutilMountPoint,
 } = require('./updateCore');
 
 const AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 自动检查间隔 6 小时
@@ -203,6 +205,58 @@ function downloadUpdate(plan, version) {
   startPart(plan.urls[0]);
 }
 
+
+/** 以超时+ promise 化跑一个外部命令 */
+function runCmd(cmd, args, timeoutMs = 180000) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(`${cmd} 失败: ${String(stderr || error.message).trim()}`));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+/**
+ * 用下载好的 dmg 自动完成安装并重启。
+ * 步骤: hdiutil 挂载(只读) → 找到唯一 .app → ditto 覆盖当前运行的 bundle
+ * → 去掉 quarantine → 卸载 → relaunch + quit(走 before-quit 的优雅停机)。
+ * 任何一步失败都抛错, 由前端回退到手动安装。
+ */
+async function installFromDmg(dmgPath) {
+  if (process.platform !== 'darwin') throw new Error('仅 macOS 支持自动安装');
+  if (typeof dmgPath !== 'string' || !dmgPath.endsWith('.dmg') || !fs.existsSync(dmgPath)) {
+    throw new Error('安装包不存在');
+  }
+  // 用当前可执行文件路径推导 bundle 位置: /X/面试Ace.app/Contents/MacOS/面试Ace
+  const marker = '.app/Contents/MacOS/';
+  const exePath = app.getPath('exe');
+  const idx = exePath.indexOf(marker);
+  if (idx < 0) throw new Error('当前未从 .app 运行(可能在直接挂载运行), 请手动安装');
+  const destApp = exePath.slice(0, idx + 4);
+
+  const { stdout } = await runCmd('hdiutil', ['attach', '-nobrowse', '-readonly', '-plist', dmgPath]);
+  const mountPoint = parseHdiutilMountPoint(stdout);
+  if (!mountPoint) throw new Error('挂载安装包失败');
+  try {
+    const entries = fs.readdirSync(mountPoint).filter((name) => name.endsWith('.app'));
+    if (entries.length !== 1) throw new Error('安装包内容异常');
+    const srcApp = path.join(mountPoint, entries[0]);
+    // 目标目录与旧包都要可写, 否则替换必然失败(比如非管理员账户)
+    fs.accessSync(path.dirname(destApp), fs.constants.W_OK);
+    if (fs.existsSync(destApp)) fs.accessSync(destApp, fs.constants.W_OK);
+    // macOS 允许删除正在运行的 .app(文件句柄仍有效); 先删再拷贝最干净
+    await runCmd('rm', ['-rf', destApp]);
+    await runCmd('ditto', [srcApp, destApp]);
+    // 防御: 去掉隔离属性, 避免重启后被 Gatekeeper 拦
+    await runCmd('xattr', ['-dr', 'com.apple.quarantine', destApp]).catch(() => {});
+  } finally {
+    await runCmd('hdiutil', ['detach', mountPoint, '-quiet']).catch(() => {});
+  }
+}
+
 function registerUpdater(mainWindow) {
   mainWindowRef = mainWindow;
   stateFilePath = path.join(app.getPath('userData'), 'update-state.json');
@@ -210,6 +264,28 @@ function registerUpdater(mainWindow) {
 
   ipcMain.handle('update-check', (_event, opts = {}) => { void checkForUpdates({ manual: Boolean(opts.manual) }); });
   ipcMain.handle('update-download', (_event, payload = {}) => downloadUpdate(payload.plan, payload.version));
+  ipcMain.handle('update-install', async (_event, payload = {}) => {
+    const dmgPath = typeof payload === 'string' ? payload : payload.dmgPath;
+    const version = typeof payload === 'object' && payload ? payload.version : undefined;
+    try {
+      emit({ phase: 'installing' });
+      await installFromDmg(dmgPath);
+      downloading = false;
+      emit({ phase: 'restarting' });
+      // 先标记重启再退出; quit 会走 main.js before-quit 的优雅停机(停后端)
+      setTimeout(() => {
+        app.relaunch();
+        app.quit();
+      }, 400);
+      return { ok: true };
+    } catch (error) {
+      downloading = false;
+      const message = error?.message || String(error);
+      // 回到 ready 卡片并带上错误, 前端可再尝试或改用手动安装
+      emit({ phase: 'ready', version, dmgPath, error: message });
+      return { ok: false, error: message };
+    }
+  });
   ipcMain.handle('update-open-installer', (_event, dmgPath) => {
     if (typeof dmgPath === 'string' && dmgPath.endsWith('.dmg') && fs.existsSync(dmgPath)) {
       return shell.openPath(dmgPath);

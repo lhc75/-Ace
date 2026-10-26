@@ -90,6 +90,15 @@ function shouldNotify(currentVersion, release, skippedVersion) {
   return true;
 }
 
+/**
+ * 从 `hdiutil attach -plist` 输出里取挂载点。
+ * 输出是 XML plist, 挂载点以 <key>mount-point</key><string>...</string> 出现。
+ */
+function parseHdiutilMountPoint(plistOutput) {
+  const match = String(plistOutput || '').match(/<key>mount-point<\/key>\s*<string>([^<]+)<\/string>/);
+  return match ? match[1] : null;
+}
+
 module.exports = {
   GITHUB_SOURCE,
   GITEE_SOURCE,
@@ -99,4 +108,5 @@ module.exports = {
   parseReleasePayload,
   resolveDownloadPlan,
   shouldNotify,
+  parseHdiutilMountPoint,
 };
