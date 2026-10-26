@@ -52,6 +52,8 @@ $nuitkaArgs = @(
     "--include-package-data=faster_whisper",
     "--include-package-data=huggingface_hub",
     "--include-package-data=tokenizers",
+    # 打包环境无系统 CA 证书，certifi 的 cacert.pem 必须随包（packaged_entry 会指向它）
+    "--include-package-data=certifi",
     # 后端资源（与 PyInstaller spec 的 datas 对齐）
     "--include-data-dir=$(Join-Path $root 'backend\assets')=assets"
 )

@@ -6,6 +6,20 @@ import os
 import sys
 
 
+def _ensure_ca_certs() -> None:
+    # 打包环境（Nuitka standalone）不携带系统 CA 证书，OpenSSL 默认路径为空，
+    # wss/https 会报 CERTIFICATE_VERIFY_FAILED。指向随包的 certifi 证书库，
+    # Python 的 ssl 默认上下文会读取 SSL_CERT_FILE（requests 读 REQUESTS_CA_BUNDLE）。
+    if os.environ.get("SSL_CERT_FILE"):
+        return
+    try:
+        import certifi
+    except ImportError:
+        return
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))
@@ -29,6 +43,7 @@ def _port() -> int:
 
 
 def main() -> None:
+    _ensure_ca_certs()
     if len(sys.argv) > 1 and sys.argv[1] == "--capture-worker":
         # The frozen backend reuses its executable for the screen-capture child.
         sys.argv = [sys.argv[0], *sys.argv[2:]]
