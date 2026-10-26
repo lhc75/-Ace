@@ -78,6 +78,8 @@ class AliyunInterviewerStream:
         self._log = logger or logging.getLogger(__name__)
 
         self.dropped_chunks = 0
+        self._frames_received = 0       # 成功读到的服务端事件数（诊断用）
+        self._last_recv_mono = 0.0      # 最后一次读到服务端数据的时刻（诊断用）
 
         self._send_q: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=self.SEND_QUEUE_MAX)
         self._dead = threading.Event()       # 已开始拆除：此后不再触发任何回调
@@ -116,13 +118,21 @@ class AliyunInterviewerStream:
         return self._failure
 
     def _mark_terminal(self, error: Optional[AliyunSTTError]) -> None:
-        """进入终态（幂等）。有错误时额外通知上层，供流水线决定重连还是降级。"""
+        """进入终态（幂等）。有错误时额外通知上层，供流水线决定重连。"""
         with self._state_lock:
             if self._terminal.is_set():
                 return
             self._failure = error
             self._terminal.set()
         if error is not None:
+            self._log.warning(
+                "stream terminal: error=%r thread=%s frames_received=%d last_recv_age=%.1fs dropped_chunks=%d",
+                error,
+                threading.current_thread().name,
+                self._frames_received,
+                (time.monotonic() - self._last_recv_mono) if self._last_recv_mono else -1.0,
+                self.dropped_chunks,
+            )
             self._emit_state(f"failed:{type(error).__name__}")
 
     def _emit_state(self, state: str) -> None:
@@ -300,6 +310,9 @@ class AliyunInterviewerStream:
             if _is_websocket_timeout(error) and time.monotonic() < deadline:
                 return None
             raise _transport_error(error, self.api_key) from None
+        if raw:
+            self._frames_received += 1
+            self._last_recv_mono = time.monotonic()
         if not raw:
             raise AliyunSTTConnectionError("阿里千问 ASR 在任务完成前断开连接")
         try:

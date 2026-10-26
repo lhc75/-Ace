@@ -8,6 +8,7 @@ import { subscribeLeader } from '@/lib/wsLeader'
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000]
 // 客户端 ping 间隔（与服务端 25s 心跳错开，避免对撞）。
 let wsErrorClearTimer: ReturnType<typeof setTimeout> | null = null
+let lastStreamReconnectToastAt = 0
 
 const CLIENT_PING_INTERVAL_MS = 25000
 // pong 超时阈值：若超过该时长没收到任何服务端帧（pong/ping/普通广播），视为僵尸。
@@ -254,9 +255,17 @@ export function useInterviewWS(active = true) {
         break
       case 'stt_stream_state':
         if (msg.state === 'reconnecting') {
-          s.pushToast('实时识别连接中断，正在自动重连…', 'warn')
+          // 断流风暴时按 30s 节流，重连提示最多一条
+          const now = Date.now()
+          if (now - lastStreamReconnectToastAt > 30000) {
+            lastStreamReconnectToastAt = now
+            s.pushToast('实时识别连接中断，正在自动重连…', 'warn')
+          }
         } else if (msg.state === 'recovered') {
-          s.pushToast('实时识别已恢复', 'info')
+          if (lastStreamReconnectToastAt > 0) {
+            s.pushToast('实时识别已恢复', 'info')
+          }
+          lastStreamReconnectToastAt = 0
         }
         break
       case 'resume_opt_start':
