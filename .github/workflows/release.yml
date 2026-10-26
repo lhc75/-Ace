@@ -31,7 +31,9 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # 与本地打包环境保持一致（本机 env 为 3.13）：CI 曾用 3.11，
+          # 其打出的 mac 包在部分机器上长连接 WSS 会莫名被 FIN，换回 3.13 以排除工具链差异。
+          python-version: '3.13'
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
@@ -81,7 +83,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          # 与本地打包环境保持一致（本机 env 为 3.13），见上方 windows 注释。
+          python-version: '3.13'
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
