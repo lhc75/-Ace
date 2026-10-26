@@ -45,9 +45,16 @@ def main() -> None:
 
     threading.Thread(target=sender, daemon=True).start()
     print("start: feeding silence for %ds (Ctrl+C to stop early)" % DURATION_SEC, flush=True)
+    print("note: recv timeout is NORMAL during silence (server sends nothing);", flush=True)
+    print("      only DISCONNECTED lines mean the connection really died.", flush=True)
     try:
-        while True:
-            msg = json.loads(ws.recv())
+        while time.monotonic() - t0 < DURATION_SEC + 60:
+            try:
+                msg = json.loads(ws.recv())
+            except websocket.WebSocketTimeoutException:
+                print("%s alive: %ds elapsed, no events (normal for silence)"
+                      % (time.strftime("%H:%M:%S"), int(time.monotonic() - t0)), flush=True)
+                continue
             ev = msg.get("header", {}).get("event", "")
             if ev == "task-started":
                 print("%s task-started" % time.strftime("%H:%M:%S"), flush=True)
