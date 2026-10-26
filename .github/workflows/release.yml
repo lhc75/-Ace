@@ -109,3 +109,33 @@ jobs:
             release/*.yml
           if-no-files-found: error
           retention-days: 14
+
+  # 仅在推送 v* 标签时运行：把两个平台的产物挂到 GitHub Release 上。
+  # .yml/.blockmap 一并上传，electron-updater 的 GitHub 通道需要它们。
+  publish-release:
+    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: dist/win
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-release
+          path: dist/mac
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" dist/win/* dist/mac/* \
+            --title "$GITHUB_REF_NAME" --generate-notes
