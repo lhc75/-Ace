@@ -151,6 +151,25 @@ def _call_circuit_record_failure(scope: str, *, is_timeout: bool, is_auth: bool)
         _circuit_record_failure(is_timeout=is_timeout, is_auth=is_auth)
 
 
+# ---------------------------------------------------------------------------
+# stt_error 广播节流：同一 scope 15 秒内最多一条，避免故障期间每段一条刷 toast
+# ---------------------------------------------------------------------------
+
+_stt_error_broadcast_lock = threading.Lock()
+_stt_error_last_mono: dict[str, float] = {}
+STT_ERROR_BROADCAST_MIN_INTERVAL_SEC = 15.0
+
+
+def _broadcast_stt_error(scope: str, provider: str, reason: str) -> None:
+    with _stt_error_broadcast_lock:
+        now = time.monotonic()
+        if now - _stt_error_last_mono.get(scope, 0.0) < STT_ERROR_BROADCAST_MIN_INTERVAL_SEC:
+            return
+        _stt_error_last_mono[scope] = now
+    from api.realtime.ws import broadcast
+    broadcast({"type": "stt_error", "scope": scope, "provider": provider, "reason": reason})
+
+
 def _pad_audio_tail_silence(
     audio: np.ndarray,
     sample_rate: int,
@@ -186,58 +205,6 @@ def _get_whisper_fallback() -> STTEngine:
     return engine
 
 
-def _transcribe_with_whisper_lock(
-    engine: STTEngine,
-    audio: np.ndarray,
-    sample_rate: int,
-    position: str,
-    language: str,
-    whisper_lock_timeout_sec: Optional[float] = None,
-) -> str:
-    acquired = False
-    try:
-        if whisper_lock_timeout_sec is None:
-            _whisper_infer_lock.acquire()
-            acquired = True
-        else:
-            acquired = _whisper_infer_lock.acquire(timeout=max(0.0, whisper_lock_timeout_sec))
-        if not acquired:
-            _log.debug("Whisper skip reason=infer_lock_busy model=%s", getattr(engine, "model_size", ""))
-            return ""
-        return engine.transcribe(audio, sample_rate, position=position, language=language)
-    finally:
-        if acquired:
-            _whisper_infer_lock.release()
-
-
-def _whisper_transcribe(
-    audio: np.ndarray,
-    sample_rate: int,
-    position: str,
-    language: str,
-    *,
-    model_size: Optional[str] = None,
-    whisper_language: Optional[str] = None,
-    whisper_lock_timeout_sec: Optional[float] = None,
-) -> str:
-    engine = get_stt_engine(
-        provider="whisper",
-        model_size=model_size,
-        language=whisper_language,
-    )
-    if not engine.is_loaded:
-        _log.info("Whisper: loading model %s", engine.model_size)
-        engine.load_model()
-    return _transcribe_with_whisper_lock(
-        engine,
-        audio,
-        sample_rate,
-        position,
-        language,
-        whisper_lock_timeout_sec,
-    )
-
-
 _whisper_preload_done = False
 
 
@@ -260,140 +227,6 @@ def _is_whisper_preloaded() -> bool:
             _whisper_preload_done = True
             return True
     return False
-
-
-def _is_whisper_engine_loaded(
-    model_size: Optional[str] = None,
-    whisper_language: Optional[str] = None,
-) -> bool:
-    from core.config import get_config
-
-    cfg = get_config()
-    key = (
-        model_size or cfg.whisper_model or "base",
-        whisper_language or cfg.whisper_language or "auto",
-    )
-    with _engine_lock:
-        engine = _whisper_engines.get(key)
-        if engine is not None and engine.is_loaded:
-            return True
-        return bool(
-            _engine is not None
-            and getattr(_engine, "model_size", None) == key[0]
-            and getattr(_engine, "language", None) == key[1]
-            and _engine.is_loaded
-        )
-
-
-def _whisper_transcribe_fallback(
-    audio: np.ndarray,
-    sample_rate: int,
-    position: str,
-    language: str,
-    *,
-    model_size: Optional[str] = None,
-    whisper_language: Optional[str] = None,
-    status_event_type: str = "stt_status",
-    whisper_lock_timeout_sec: Optional[float] = None,
-) -> str:
-    """Fallback through Whisper, loading it first if preload has not completed."""
-    global _whisper_preload_done
-    from core.config import get_config
-    cfg = get_config()
-    size = model_size or cfg.whisper_model or "base"
-    lang = whisper_language or cfg.whisper_language or "auto"
-    try:
-        engine = get_stt_engine(
-            provider="whisper",
-            model_size=size,
-            language=lang,
-        )
-    except TypeError:
-        # Some tests and plugins monkeypatch get_stt_engine with the old
-        # signature. Build the Whisper fallback directly in that case.
-        global _engine
-        with _engine_lock:
-            if _engine is None:
-                _engine = STTEngine(model_size=size, language=lang)
-            engine = _engine
-    if engine.is_loaded:
-        _whisper_preload_done = True
-        return _transcribe_with_whisper_lock(
-            engine,
-            audio,
-            sample_rate,
-            position,
-            language,
-            whisper_lock_timeout_sec,
-        )
-    _log.warning("Whisper fallback not loaded, loading synchronously for %.1fs audio", len(audio) / max(sample_rate, 1))
-    from api.realtime.ws import broadcast
-    broadcast({"type": status_event_type, "loaded": False, "loading": True, "provider": "whisper"})
-    try:
-        engine.load_model()
-    except Exception as e:
-        broadcast({"type": status_event_type, "loaded": False, "loading": False, "provider": "whisper", "error": str(e)})
-        raise
-    _whisper_preload_done = bool(engine.is_loaded)
-    broadcast({"type": status_event_type, "loaded": bool(engine.is_loaded), "loading": False, "provider": "whisper"})
-    return _transcribe_with_whisper_lock(
-        engine,
-        audio,
-        sample_rate,
-        position,
-        language,
-        whisper_lock_timeout_sec,
-    )
-
-
-def _call_whisper_transcribe(
-    audio: np.ndarray,
-    sample_rate: int,
-    position: str,
-    language: str,
-    *,
-    model_size: Optional[str] = None,
-    whisper_language: Optional[str] = None,
-    whisper_lock_timeout_sec: Optional[float] = None,
-) -> str:
-    try:
-        return _whisper_transcribe(
-            audio,
-            sample_rate,
-            position,
-            language,
-            model_size=model_size,
-            whisper_language=whisper_language,
-            whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-        )
-    except TypeError:
-        return _whisper_transcribe(audio, sample_rate, position, language)
-
-
-def _call_whisper_transcribe_fallback(
-    audio: np.ndarray,
-    sample_rate: int,
-    position: str,
-    language: str,
-    *,
-    model_size: Optional[str] = None,
-    whisper_language: Optional[str] = None,
-    status_event_type: str = "stt_status",
-    whisper_lock_timeout_sec: Optional[float] = None,
-) -> str:
-    try:
-        return _whisper_transcribe_fallback(
-            audio,
-            sample_rate,
-            position,
-            language,
-            model_size=model_size,
-            whisper_language=whisper_language,
-            status_event_type=status_event_type,
-            whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-        )
-    except TypeError:
-        return _whisper_transcribe_fallback(audio, sample_rate, position, language)
 
 
 def preload_whisper_fallback() -> None:
@@ -542,14 +375,17 @@ def transcribe_with_fallback(
     scope: str = "interviewer",
     whisper_lock_timeout_sec: Optional[float] = None,
     whisper_require_loaded: bool = False,
-    fallback_on_empty_remote: bool = False,
 ) -> str:
-    """Resilient transcription: retry once, then fallback to whisper, with circuit breaker.
+    """Resilient transcription **in the selected mode**: retry once, circuit breaker.
+
+    绝不切换引擎：远程引擎失败时只重试/熔断限流并广播 stt_error，
+    返回空文本（该段丢弃），下一段继续用所选引擎。没有 Whisper 降级。
 
     Flow:
-      1. If circuit breaker is open and provider != whisper → go straight to whisper.
+      1. If circuit breaker is open and provider != whisper → fast-fail with
+         an stt_error broadcast (no whisper switch).
       2. Try primary engine (up to 2 attempts with 0.3s gap).
-      3. On failure → record circuit failure → fallback to whisper.
+      3. On failure → record circuit failure → stt_error broadcast → "".
     """
     from core.config import get_config
     from api.realtime.ws import broadcast
@@ -561,37 +397,11 @@ def transcribe_with_fallback(
     is_remote = selected_provider in REMOTE_STT_PROVIDERS
     audio_sec = len(audio) / sample_rate if sample_rate and len(audio) else 0.0
     circuit_scope = (scope or "interviewer").strip() or "interviewer"
-    fallback_event_type = "candidate_stt_fallback" if circuit_scope == "candidate" else "stt_fallback"
 
     if is_remote and _call_circuit_open(circuit_scope):
-        _log.info("STT circuit open, using whisper fallback directly")
-        broadcast({"type": fallback_event_type, "scope": circuit_scope, "from": selected_provider, "to": "whisper", "reason": "circuit_open"})
-        whisper_loaded = _is_whisper_engine_loaded(whisper_model, whisper_language)
-        broadcast({"type": status_event_type, "loaded": whisper_loaded, "loading": not whisper_loaded, "provider": "whisper"})
-        try:
-            if whisper_loaded:
-                return _call_whisper_transcribe(
-                    audio,
-                    sample_rate,
-                    position,
-                    language,
-                    model_size=whisper_model,
-                    whisper_language=whisper_language,
-                    whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-                )
-            return _call_whisper_transcribe_fallback(
-                audio,
-                sample_rate,
-                position,
-                language,
-                model_size=whisper_model,
-                whisper_language=whisper_language,
-                status_event_type=status_event_type,
-                whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-            )
-        except Exception as e:
-            _log.error("Whisper fallback also failed: %s", e, exc_info=True)
-            return ""
+        _log.info("STT circuit open, fast-fail without switching provider scope=%s", circuit_scope)
+        _broadcast_stt_error(circuit_scope, selected_provider, "circuit_open")
+        return ""
 
     try:
         primary = get_stt_engine(
@@ -658,11 +468,10 @@ def transcribe_with_fallback(
             is_auth_err = _is_auth_error(e)
             if is_remote and _is_empty_remote_result_error(e):
                 _log.warning(
-                    "STT %s returned empty text scope=%s raw=%.1fs fallback_on_empty=%s reason=%s",
+                    "STT %s returned empty text scope=%s raw=%.1fs reason=%s",
                     selected_provider,
                     circuit_scope,
                     audio_sec,
-                    fallback_on_empty_remote,
                     e,
                 )
                 if (
@@ -713,9 +522,9 @@ def transcribe_with_fallback(
                     # transport is alive. Do not let it extend a prior outage.
                     if audio_sec < REMOTE_EMPTY_CIRCUIT_MIN_AUDIO_SEC:
                         _call_circuit_reset(circuit_scope)
-                    if not fallback_on_empty_remote and audio_sec < 5.0:
+                    if audio_sec < 5.0:
                         _log.info(
-                            "STT %s returned empty text for short audio %.1fs; suppress fallback",
+                            "STT %s returned empty text for short audio %.1fs; drop segment",
                             selected_provider,
                             audio_sec,
                         )
@@ -743,32 +552,7 @@ def transcribe_with_fallback(
         _call_circuit_record_failure(circuit_scope, is_timeout=is_timeout_err, is_auth=is_auth_err)
 
     if is_remote:
-        _log.warning("STT fallback to whisper (primary=%s err=%s)", selected_provider, last_err)
-        broadcast({"type": fallback_event_type, "scope": circuit_scope, "from": selected_provider, "to": "whisper", "reason": str(last_err)[:80]})
-        whisper_loaded = _is_whisper_engine_loaded(whisper_model, whisper_language)
-        broadcast({"type": status_event_type, "loaded": whisper_loaded, "loading": not whisper_loaded, "provider": "whisper"})
-        try:
-            if whisper_loaded:
-                return _call_whisper_transcribe(
-                    audio,
-                    sample_rate,
-                    position,
-                    language,
-                    model_size=whisper_model,
-                    whisper_language=whisper_language,
-                    whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-                )
-            return _call_whisper_transcribe_fallback(
-                audio,
-                sample_rate,
-                position,
-                language,
-                model_size=whisper_model,
-                whisper_language=whisper_language,
-                status_event_type=status_event_type,
-                whisper_lock_timeout_sec=whisper_lock_timeout_sec,
-            )
-        except Exception as e:
-            _log.error("Whisper fallback also failed: %s", e, exc_info=True)
+        _log.warning("STT %s failed, keeping selected provider (err=%s)", selected_provider, last_err)
+        _broadcast_stt_error(circuit_scope, selected_provider, str(last_err)[:120])
 
     return ""

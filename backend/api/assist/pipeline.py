@@ -1418,7 +1418,6 @@ def _interviewer_asr_worker(
                 position=current_cfg.position,
                 language=current_cfg.language,
                 scope="interviewer",
-                fallback_on_empty_remote=True,
             )
             stt_ms = (time.monotonic() - t0) * 1000
             pub = _publishable_transcription(text, current_cfg)
@@ -1489,8 +1488,8 @@ def _on_stream_state(recording_generation: int, state: str) -> None:
     _ilog.info("INTERVIEWER_STREAM_STATE gen=%d state=%s", recording_generation, state)
 
 
-def _start_interviewer_stream(cfg, recording_generation: int, session) -> Optional[AliyunInterviewerStream]:
-    """建立面试官专用流式会话；失败时广播降级提示并返回 None（上层回落逐段识别）。"""
+def _start_interviewer_stream(cfg, recording_generation: int, session, notify: bool = True) -> Optional[AliyunInterviewerStream]:
+    """建立面试官专用流式会话；失败返回 None，由主循环按退避自动重连（不回落逐段识别）。"""
     stream = AliyunInterviewerStream(
         api_key=getattr(cfg, "aliyun_stt_api_key", ""),
         model=getattr(cfg, "aliyun_stt_model", ""),
@@ -1504,14 +1503,15 @@ def _start_interviewer_stream(cfg, recording_generation: int, session) -> Option
     try:
         stream.start()
     except AliyunSTTError as exc:
-        _elog.warning("interviewer stream start failed, using per-segment path: %s", exc)
-        with _recording_generation_lock:
-            if _recording_generation_is_current(recording_generation):
-                broadcast({
-                    "type": "stt_fallback", "scope": "interviewer",
-                    "from": "aliyun-stream", "to": "aliyun-segment",
-                    "reason": "stream_start_failed",
-                })
+        _elog.warning("interviewer stream start failed, will retry in-loop: %s", exc)
+        if notify:
+            with _recording_generation_lock:
+                if _recording_generation_is_current(recording_generation):
+                    broadcast({
+                        "type": "stt_stream_state", "scope": "interviewer",
+                        "provider": "aliyun", "state": "reconnecting",
+                        "reason": str(exc)[:120],
+                    })
         return None
     _ilog.info(
         "INTERVIEWER_STREAM_START model=%s max_sentence_silence_ms=%d",
@@ -1567,18 +1567,18 @@ def _start_generic_interim_transcriber(
 ) -> Optional[GenericInterimTranscriber]:
     """为通用 ASR 建立伪流式转写器；配置缺失或引擎不可用时返回 None。
 
-    失败不广播降级提示：静默回落到逐段识别即可。
+    失败返回 None，由主循环按退避自动重建（不回落逐段识别）。
     """
     try:
         engine = get_stt_engine(provider="generic")
     except Exception as exc:
-        _elog.warning("generic interim transcriber init failed, per-segment only: %s", exc)
+        _elog.warning("generic interim transcriber init failed, will retry in-loop: %s", exc)
         return None
     if not isinstance(engine, GenericHTTPSTT) or not engine.is_loaded:
         return None
 
     def _final_transcribe(audio: np.ndarray, sample_rate: int) -> str:
-        # 定稿走与逐段路径相同的韧性链路（重试/熔断/Whisper 降级）。
+        # 定稿走与逐段路径相同的韧性链路（同引擎重试/熔断，不切引擎）。
         current_cfg = get_config()
         return transcribe_with_fallback(
             audio,
@@ -1587,7 +1587,6 @@ def _start_generic_interim_transcriber(
             language=current_cfg.language,
             provider="generic",
             scope="interviewer",
-            fallback_on_empty_remote=True,
         )
 
     interval_ms = max(
@@ -1681,28 +1680,37 @@ def _run_interview_worker(recording_generation: int):
     # 不满足条件或流式不可用时，继续走原有的 VAD 逐段识别路径。
     stream: Optional[AliyunInterviewerStream] = None
     use_stream = False
-    reconnect_budget = 1  # 每场录音最多自动重连一次，再失败就降级
+    stream_retry_attempt = 0
+    next_stream_retry_mono = 0.0
     if (
         bool(getattr(cfg, "interviewer_streaming_asr_enabled", False))
         and (getattr(cfg, "stt_provider", "") or "").strip() == "aliyun"
         and (getattr(cfg, "aliyun_stt_api_key", "") or "").strip()
     ):
+        # 坚持流式：建流失败不回落逐段识别，置重试状态由主循环自动重连。
+        use_stream = True
+        _set_stream_mode(True)
         stream = _start_interviewer_stream(cfg, recording_generation, session)
-        use_stream = stream is not None
-        _set_stream_mode(use_stream)
+        if stream is None:
+            next_stream_retry_mono = time.monotonic() + 1.0
 
     # 通用 ASR 伪流式（对齐千问流式体验）：说话期间按间隔整体重转写 VAD 缓存
     # 出“进行中”行（前缀稳定化，只增不跳），VAD 切段即定稿并即时派发答题；
     # 生效期间跳过逐段入队，行为与千问流式一致。
     generic_interim: Optional[GenericInterimTranscriber] = None
+    generic_wanted = False
+    next_generic_retry_mono = 0.0
     if (
         not use_stream
         and bool(getattr(cfg, "interviewer_streaming_asr_enabled", False))
         and (getattr(cfg, "stt_provider", "") or "").strip() == "generic"
     ):
+        # 坚持伪流式：建不起来就按退避自动重建，不回落逐段识别。
+        generic_wanted = True
+        _set_stream_mode(True)
         generic_interim = _start_generic_interim_transcriber(cfg, recording_generation, session)
-        if generic_interim is not None:
-            _set_stream_mode(True)
+        if generic_interim is None:
+            next_generic_retry_mono = time.monotonic() + 1.0
 
     # gc.collect() 之前直接放在主 ASR 循环里 (每 60s 同步执行),
     # 大堆下单次 50~500ms, 期间无法读音频可能丢块。改成独立 daemon 线程,
@@ -1769,10 +1777,7 @@ def _run_interview_worker(recording_generation: int):
             if pause_flushed:
                 pause_flushed = False
                 if use_stream and stream is None:
-                    stream = _start_interviewer_stream(get_config(), recording_generation, session)
-                    if stream is None:
-                        use_stream = False
-                    _set_stream_mode(use_stream)
+                    next_stream_retry_mono = 0.0  # 恢复后立即重连流
             if not audio_capture.is_running:
                 _elog.error("Interview worker: audio capture stopped unexpectedly, exiting loop")
                 with _recording_generation_lock:
@@ -1797,44 +1802,70 @@ def _run_interview_worker(recording_generation: int):
                 continue
             if use_stream:
                 if stream is not None and not stream.healthy:
-                    # 流中途断开：先用掉一次重连预算；再失败就降级到逐段识别。
-                    _elog.warning("interviewer stream lost: %s", stream.failure)
+                    # 流中途断开：坚持流式，自动重连（指数退避，不限次数），
+                    # 断线期间音频不入逐段队列，绝不回落为非实时路径。
+                    failure_reason = str(stream.failure)[:120] if stream.failure else "stream_lost"
+                    _elog.warning("interviewer stream lost: %s", failure_reason)
                     stream.abort()
                     stream = None
-                    degraded_broadcast_done = False
-                    if reconnect_budget > 0:
-                        reconnect_budget -= 1
-                        stream = _start_interviewer_stream(get_config(), recording_generation, session)
-                        degraded_broadcast_done = stream is None
-                        if stream is not None:
-                            _ilog.info("INTERVIEWER_STREAM_RECONNECT ok")
-                    if stream is None:
-                        use_stream = False
-                        _set_stream_mode(False)
-                        if not degraded_broadcast_done:
-                            with _recording_generation_lock:
-                                if _recording_generation_is_current(recording_generation):
-                                    broadcast({
-                                        "type": "stt_fallback", "scope": "interviewer",
-                                        "from": "aliyun-stream", "to": "aliyun-segment",
-                                        "reason": "stream_failed",
-                                    })
-                streaming_active = stream is not None and stream.healthy
-                if streaming_active:
+                    next_stream_retry_mono = now  # 立即发起第一次重连
+                    with _recording_generation_lock:
+                        if _recording_generation_is_current(recording_generation):
+                            broadcast({
+                                "type": "stt_stream_state", "scope": "interviewer",
+                                "provider": "aliyun", "state": "reconnecting",
+                                "reason": failure_reason,
+                            })
+                if stream is None and now >= next_stream_retry_mono:
+                    stream_retry_attempt += 1
+                    stream = _start_interviewer_stream(
+                        get_config(), recording_generation, session, notify=False
+                    )
+                    if stream is not None:
+                        _ilog.info("INTERVIEWER_STREAM_RECONNECT ok attempts=%d", stream_retry_attempt)
+                        stream_retry_attempt = 0
+                        with _recording_generation_lock:
+                            if _recording_generation_is_current(recording_generation):
+                                broadcast({
+                                    "type": "stt_stream_state", "scope": "interviewer",
+                                    "provider": "aliyun", "state": "recovered",
+                                })
+                    else:
+                        next_stream_retry_mono = now + min(8.0, 2.0 ** min(stream_retry_attempt, 3))
+                streaming_active = True  # 意图级开关：重连期间同样禁止逐段识别
+                if stream is not None and stream.healthy:
                     # 先喂流再喂 VAD：VAD 的计算耗时不能拖慢音频上行。
                     for raw_chunk in chunks:
                         stream.feed(_audio_to_pcm_int16(raw_chunk).astype("<i2", copy=False).tobytes())
             else:
                 streaming_active = False
-            if generic_interim is not None:
-                if generic_interim.healthy:
-                    streaming_active = True
-                else:
-                    # 伪流式工作线程意外死亡：停掉并回退逐段识别，与千问断流降级一致。
-                    _elog.warning("generic interim transcriber lost, falling back to per-segment")
+            if generic_wanted:
+                # 坚持伪流式：线程意外死亡时自动重建（退避），不回落逐段识别。
+                if generic_interim is not None and not generic_interim.healthy:
+                    _elog.warning("generic interim transcriber lost, restarting")
                     _stop_streaming_session(generic_interim, recording_generation, 0.5)
                     generic_interim = None
-                    _set_stream_mode(False)
+                    next_generic_retry_mono = now
+                    with _recording_generation_lock:
+                        if _recording_generation_is_current(recording_generation):
+                            broadcast({
+                                "type": "stt_stream_state", "scope": "interviewer",
+                                "provider": "generic", "state": "reconnecting",
+                            })
+                if generic_interim is None and now >= next_generic_retry_mono:
+                    generic_interim = _start_generic_interim_transcriber(
+                        get_config(), recording_generation, session
+                    )
+                    if generic_interim is not None:
+                        with _recording_generation_lock:
+                            if _recording_generation_is_current(recording_generation):
+                                broadcast({
+                                    "type": "stt_stream_state", "scope": "interviewer",
+                                    "provider": "generic", "state": "recovered",
+                                })
+                    else:
+                        next_generic_retry_mono = now + 2.0
+                streaming_active = True
             energy = AudioCapture.compute_energy(np.concatenate(chunks))
             if energy > float(getattr(cfg, "silence_threshold", 0.01) or 0.01):
                 runtime.last_speech_mono = now

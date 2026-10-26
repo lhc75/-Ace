@@ -261,7 +261,6 @@ def replay_preflight_capture_stt(
                     position=getattr(cfg, "position", ""),
                     language=getattr(cfg, "language", ""),
                     scope="interviewer",
-                    fallback_on_empty_remote=True,
                 ) or ""
                 stt_ms = int((time.monotonic() - stt_started) * 1000)
             ok, detail = match_phrase(target_phrase, transcript)
@@ -556,7 +555,6 @@ def _run_preflight(device_id: Optional[int], scenario_id: str):
             position=getattr(cfg, "position", ""),
             language=getattr(cfg, "language", ""),
             scope="interviewer",
-            fallback_on_empty_remote=True,
         ) or ""
         _set_status(captured_transcript=transcript)
         ok, detail = match_phrase(expected_phrase, transcript)

@@ -245,15 +245,19 @@ export function useInterviewWS(active = true) {
       case 'model_fallback':
         s.setFallbackToast({ from: msg.from as string, to: msg.to as string, reason: msg.reason as string })
         break
-      case 'stt_fallback':
-        s.setFallbackToast({
-          from: `STT:${msg.from as string}`,
-          to: `STT:${msg.to as string}`,
-          reason: msg.reason as string,
-        })
+      case 'stt_error':
+        // 识别失败但绝不降级：提示并保持当前所选模式，下一段继续尝试
+        s.pushToast(
+          `语音识别暂时失败（保持 ${msg.provider as string} 模式）：${(msg.reason as string) || '未知原因'}`,
+          'warn',
+        )
         break
-      case 'candidate_stt_fallback':
-        s.pushToast(`候选人麦克风 ASR 已降级到 ${msg.to as string}`, 'warn')
+      case 'stt_stream_state':
+        if (msg.state === 'reconnecting') {
+          s.pushToast('实时识别连接中断，正在自动重连…', 'warn')
+        } else if (msg.state === 'recovered') {
+          s.pushToast('实时识别已恢复', 'info')
+        }
         break
       case 'resume_opt_start':
         s.resetResumeOpt(typeof msg.job_id === 'string' ? msg.job_id : null)

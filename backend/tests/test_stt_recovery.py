@@ -104,24 +104,6 @@ def test_successful_primary_probe_recovers_matching_scopes(monkeypatch, isolated
     assert factory._is_circuit_open("candidate") is not success
 
 
-def test_fallback_load_failure_clears_loading_status(monkeypatch):
-    def fail_load():
-        raise RuntimeError("model download failed")
-
-    engine = SimpleNamespace(is_loaded=False, load_model=fail_load)
-    events = []
-    monkeypatch.setattr(factory, "get_stt_engine", lambda **_kwargs: engine)
-    monkeypatch.setattr(config_module, "get_config", lambda: AppConfig())
-    monkeypatch.setattr(ws_module, "broadcast", events.append)
-
-    with pytest.raises(RuntimeError, match="download failed"):
-        factory._whisper_transcribe_fallback(np.zeros(1600, dtype=np.float32), 16000, "", "")
-    assert events[0]["loading"] is True
-    assert events[-1]["loading"] is False
-    assert events[-1]["loaded"] is False
-    assert events[-1]["error"] == "model download failed"
-
-
 def test_probe_for_old_settings_does_not_clear_new_provider_outage(monkeypatch, isolated_circuits):
     old_cfg = AppConfig(
         stt_provider="generic", generic_stt_api_base_url="http://localhost/v1", generic_stt_model="old",

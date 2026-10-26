@@ -91,7 +91,7 @@ def test_streaming_active_segment_is_not_enqueued():
     assert pipeline._interviewer_segment_backlog(runtime) == 1
 
 
-def test_start_interviewer_stream_failure_broadcasts_fallback(monkeypatch, broadcast_spy, current_generation):
+def test_start_interviewer_stream_failure_broadcasts_reconnecting(monkeypatch, broadcast_spy, current_generation):
     def fail_start(self):
         raise AliyunSTTAuthError("bad key")
 
@@ -99,8 +99,8 @@ def test_start_interviewer_stream_failure_broadcasts_fallback(monkeypatch, broad
     cfg = AppConfig(stt_provider="aliyun", aliyun_stt_api_key="bad")
     assert pipeline._start_interviewer_stream(cfg, current_generation, _Session()) is None
     assert broadcast_spy == [{
-        "type": "stt_fallback", "scope": "interviewer",
-        "from": "aliyun-stream", "to": "aliyun-segment", "reason": "stream_start_failed",
+        "type": "stt_stream_state", "scope": "interviewer",
+        "provider": "aliyun", "state": "reconnecting", "reason": "bad key",
     }]
 
 

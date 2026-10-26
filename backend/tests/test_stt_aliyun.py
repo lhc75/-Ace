@@ -283,11 +283,11 @@ def test_custom_model_readiness_and_trimming():
     assert not AliyunSTT("key", "  ").is_loaded
 
 
-@pytest.mark.parametrize("scope,event_type,fallback_type", [
-    ("interviewer", "stt_status", "stt_fallback"),
-    ("candidate", "candidate_asr_status", "candidate_stt_fallback"),
+@pytest.mark.parametrize("scope,event_type", [
+    ("interviewer", "stt_status"),
+    ("candidate", "candidate_asr_status"),
 ])
-def test_auth_failure_falls_back_once_and_keeps_scope(monkeypatch, scope, event_type, fallback_type):
+def test_auth_failure_never_falls_back_and_keeps_scope(monkeypatch, scope, event_type):
     import core.config as config_module
     from api.realtime import ws as broadcast_module
 
@@ -303,16 +303,18 @@ def test_auth_failure_falls_back_once_and_keeps_scope(monkeypatch, scope, event_
     monkeypatch.setattr(factory, "get_stt_engine", lambda **_kwargs: SimpleNamespace(transcribe=fail))
     monkeypatch.setattr(factory, "_call_circuit_open", lambda _scope: False)
     monkeypatch.setattr(factory, "_call_circuit_record_failure", lambda *_args, **kwargs: calls.append(kwargs))
-    monkeypatch.setattr(factory, "_is_whisper_engine_loaded", lambda *_args: True)
-    monkeypatch.setattr(factory, "_call_whisper_transcribe", lambda *_args, **_kwargs: "local")
+    monkeypatch.setattr(factory, "_stt_error_last_mono", {})
     monkeypatch.setattr(broadcast_module, "broadcast", calls.append)
+    # 鉴权失败：不重试、不切引擎，返回空并广播 stt_error（保持所选模式）
     assert factory.transcribe_with_fallback(
         np.zeros(1600), 16000, provider="aliyun", scope=scope, status_event_type=event_type,
-    ) == "local"
+    ) == ""
     assert len(attempts) == 1
     assert any(c.get("is_auth") is True for c in calls)
-    assert any(c.get("type") == fallback_type and c.get("from") == "aliyun" for c in calls)
-    assert not any(c.get("type") == ("stt_fallback" if scope == "candidate" else "candidate_stt_fallback") for c in calls)
+    assert any(
+        c.get("type") == "stt_error" and c.get("provider") == "aliyun" and c.get("scope") == scope
+        for c in calls
+    )
 
 
 def test_remote_disabled_never_uses_aliyun(monkeypatch):
