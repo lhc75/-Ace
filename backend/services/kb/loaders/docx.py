@@ -7,7 +7,7 @@ from typing import Optional
 from core.logger import get_logger
 
 from ..types import RawDoc, RawSection
-from ._base import register
+from ._base import format_section_path, register
 
 _log = get_logger(__name__)
 
@@ -52,7 +52,7 @@ class DocxLoader:
                     heading_stack.pop()
                 heading_stack.append((level, text))
                 flush()
-                current_sp = _format_sp(title, heading_stack)
+                current_sp = format_section_path(title, heading_stack)
                 continue
             if text:
                 buf.append(text)
@@ -87,16 +87,6 @@ def _heading_level(style: str) -> Optional[int]:
             except ValueError:
                 return None
     return None
-
-
-def _format_sp(title: Optional[str], stack: list[tuple[int, str]]) -> str:
-    parts: list[str] = []
-    if title:
-        parts.append(title)
-    for _, h in stack:
-        if h and (not parts or parts[-1] != h):
-            parts.append(h)
-    return " > ".join(parts)
 
 
 if _DOCX_OK:

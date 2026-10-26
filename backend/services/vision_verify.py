@@ -70,15 +70,18 @@ def _parse_verdict(raw: str) -> dict:
     return {"verdict": verdict, "reason": reason[:240]}
 
 
-def _pick_vision_model_cfg():
-    from core.config import get_config
+def pick_vision_model():
+    """挑一个可用的识图模型: supports_vision + enabled + 有效 api_key。
+
+    kb 的 vision loader 也复用这个选择逻辑。
+    """
+    from core.config import get_config, has_valid_api_key
     cfg = get_config()
     for m in cfg.models:
         if (
             m.supports_vision
             and bool(getattr(m, "enabled", True))
-            and m.api_key
-            and m.api_key not in ("", "sk-your-api-key-here")
+            and has_valid_api_key(m.api_key)
         ):
             return m
     return None
@@ -121,7 +124,7 @@ def _build_verify_prompt(answer: str, image_count: int) -> str:
 
 def _verify_blocking(answer: str, image_data_url: str | Sequence[str]) -> dict:
     """同步执行一次 self-verify。失败时返回 verdict=UNKNOWN。"""
-    model_cfg = _pick_vision_model_cfg()
+    model_cfg = pick_vision_model()
     if model_cfg is None:
         return {"verdict": "UNKNOWN", "reason": "未配置可用的视觉模型"}
 
@@ -170,7 +173,7 @@ def schedule_self_verify(
     images = _normalize_image_data_urls(image_data_url)
     if not qa_id or not answer or not images:
         return
-    if _pick_vision_model_cfg() is None:
+    if pick_vision_model() is None:
         return
     if not _VERIFY_SEMAPHORE.acquire(blocking=False):
         _log.debug("vision_verify skipped (semaphore full) id=%s", qa_id)

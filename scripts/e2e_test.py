@@ -86,15 +86,13 @@ def main() -> int:
     kill_port(PORT)
     log("2. 启动后端服务...")
     env = {**os.environ, "PORT": str(PORT)}
-    if BACKEND_DIR not in sys.path:
-        sys.path.insert(0, BACKEND_DIR)
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(PORT)],
         cwd=BACKEND_DIR,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
         text=True,
     )
 

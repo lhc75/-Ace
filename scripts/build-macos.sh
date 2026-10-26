@@ -70,7 +70,7 @@ step "构建 macOS Python 后端（Nuitka，编译为机器码）"
 
 BACKEND_BIN="$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
 if [[ ! -f "$BACKEND_BIN" ]]; then
-  echo "[ERROR] PyInstaller 未生成后端可执行文件: $BACKEND_BIN" >&2
+  echo "[ERROR] Nuitka 未生成后端可执行文件: $BACKEND_BIN" >&2
   exit 1
 fi
 chmod +x "$BACKEND_BIN"

@@ -37,7 +37,7 @@ def test_verify_blocking_sends_all_images_to_vision_model(monkeypatch):
         ),
     )
 
-    monkeypatch.setattr(vision_verify, "_pick_vision_model_cfg", lambda: model_cfg)
+    monkeypatch.setattr(vision_verify, "pick_vision_model", lambda: model_cfg)
     monkeypatch.setattr("services.llm.get_client_for_model", lambda _cfg: client)
     monkeypatch.setattr("services.llm._add_tokens", lambda *_args: None)
 
@@ -81,7 +81,7 @@ def test_schedule_self_verify_persists_result_before_broadcast(monkeypatch):
     seen_snapshot: list[dict] = []
     done = threading.Event()
 
-    monkeypatch.setattr(vision_verify, "_pick_vision_model_cfg", lambda: SimpleNamespace(model="vision-model"))
+    monkeypatch.setattr(vision_verify, "pick_vision_model", lambda: SimpleNamespace(model="vision-model"))
     monkeypatch.setattr(
         vision_verify,
         "_verify_blocking",

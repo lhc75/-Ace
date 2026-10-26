@@ -9,7 +9,7 @@ from typing import Any
 from openai import OpenAI
 
 from core.logger import get_logger
-from core.config import get_config
+from core.config import get_config, has_valid_api_key
 from services.llm.streaming import (
     _build_think_params,
     _completion_token_kwargs,
@@ -49,7 +49,7 @@ def get_active_llm_client() -> tuple[OpenAI, str]:
     cfg = get_config()
     review_model = cfg.get_review_model()
 
-    if not review_model.api_key or review_model.api_key in ("", "sk-your-api-key-here"):
+    if not has_valid_api_key(review_model.api_key):
         raise ValueError("Review 模型未配置有效的 API Key")
 
     client = get_client_for_model(review_model)

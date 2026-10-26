@@ -170,12 +170,8 @@ async def kb_upload(
     }
 
 
-class ReindexReq(BaseModel):
-    force: bool = False
-
-
 @router.post("/kb/reindex")
-async def kb_reindex(req: Optional[ReindexReq] = None) -> dict:
+async def kb_reindex() -> dict:
     info = await _run_kb_low_priority(indexer.reindex)
     return info
 

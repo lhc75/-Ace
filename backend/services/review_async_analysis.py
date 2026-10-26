@@ -35,11 +35,22 @@ def _score_values(scorecard: Any) -> list[float]:
     return scores
 
 
-def analyze_session_async(session_id: int):
+# 在途分析的 session 集合: 两个并发触发(手动 generate + on_assist_stop 自动)
+# 不能各起一个线程同时写同一场的 turns/summary
+_in_flight: set[int] = set()
+_in_flight_lock = threading.Lock()
+
+
+def analyze_session_async(session_id: int) -> bool:
     """
-    异步分析 session
-    在后台线程中执行，不阻塞主流程
+    异步分析 session, 在后台线程中执行，不阻塞主流程。
+    同一场已有分析在跑时直接返回 False, 不重复起线程。
     """
+    with _in_flight_lock:
+        if session_id in _in_flight:
+            logger.info("Analysis already in flight for session_id=%d, skip", session_id)
+            return False
+        _in_flight.add(session_id)
     review.update_session_status(session_id, "analyzing")
     thread = threading.Thread(
         target=_analyze_session_worker,
@@ -48,6 +59,7 @@ def analyze_session_async(session_id: int):
     )
     thread.start()
     logger.info("Started background analysis for session_id=%d", session_id)
+    return True
 
 
 def _analyze_session_worker(session_id: int):
@@ -57,6 +69,14 @@ def _analyze_session_worker(session_id: int):
     2. 生成整场总结
     3. 更新数据库
     """
+    try:
+        _analyze_session_inner(session_id)
+    finally:
+        with _in_flight_lock:
+            _in_flight.discard(session_id)
+
+
+def _analyze_session_inner(session_id: int):
     try:
         logger.info("Analyzing session_id=%d", session_id)
 

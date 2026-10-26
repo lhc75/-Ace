@@ -458,7 +458,7 @@ def _search_for_model_impl(
             api_base_url=api_base_url,
             api_key=api_key,
             query=query,
-            ori_question=prepare_public_query(ori_question),
+            ori_question=ori_question,
             timeout_s=timeout_s,
         )
     except Exception as exc:  # noqa: BLE001

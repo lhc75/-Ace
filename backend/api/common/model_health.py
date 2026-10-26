@@ -5,7 +5,7 @@ from typing import Optional
 
 import requests
 
-from core.config import get_config, model_health_fingerprint
+from core.config import get_config, has_valid_api_key, model_health_fingerprint
 from core.resource_lanes import submit_low_priority_background
 from services.llm.streaming import (
     _build_think_params,
@@ -435,12 +435,10 @@ def _probe_think(model) -> tuple[bool, str, dict, str]:
     for style, params in _think_probe_candidates(model):
         payload = _chat_payload(model, messages, 64, params)
         try:
-            body, _latency_ms = _post_chat(model, payload, timeout=12)
-            text, reasoning = _extract_health_probe_text_and_reasoning(body)
-            if reasoning or _is_strong_reasoning_model(model):
-                return True, style, params, "Think 参数已接受"
-            if text:
-                last_detail = f"{style} 参数被接受，但未返回 reasoning"
+            # 此处模型必定是推理模型(上面早退), 参数不报错即视为被接受;
+            # 不额外校验响应里是否真带 reasoning (部分模型默认就不回传)。
+            _post_chat(model, payload, timeout=12)
+            return True, style, params, "Think 参数已接受"
         except Exception as e:
             detail = str(e)[:160]
             last_detail = detail
@@ -506,7 +504,7 @@ def probe_single_model(index: int) -> dict:
         if _fingerprint_is_current(index, fingerprint):
             _clear_model_health(index, fingerprint)
         return _probe_result(False, detail="模型已停用")
-    if not model.api_key or model.api_key in ("", "sk-your-api-key-here"):
+    if not has_valid_api_key(model.api_key):
         _store_model_health(index, fingerprint, "error", "未配置 API Key", 0)
         return _probe_result(False, detail="未配置 API Key")
     try:
@@ -574,7 +572,7 @@ def _check_single_model(
     else:
         return
 
-    if not model.api_key or model.api_key in ("", "sk-your-api-key-here"):
+    if not has_valid_api_key(model.api_key):
         if _store_model_health(index, fingerprint, "error", "未配置 API Key", 0):
             broadcast(
                 {

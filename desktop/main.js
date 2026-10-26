@@ -8,6 +8,7 @@ const {
   ipcMain,
   screen,
   desktopCapturer,
+  dialog,
 } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -190,8 +191,11 @@ function saveOverlayWindowState(data) {
   }
 }
 
-function getStoredOverlayPosition() {
-  const saved = loadOverlayWindowState();
+function resolveOverlayMode() {
+  return lastOverlayState?.mode || (lastOverlayState?.showBg === false ? 'prompt' : 'glass');
+}
+
+function getStoredOverlayPosition(saved = loadOverlayWindowState()) {
   const pos = saved?.position;
   if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
   const displays = screen.getAllDisplays();
@@ -205,11 +209,8 @@ function getStoredOverlayPosition() {
     );
   });
   if (fitsSomeDisplay) return { x: pos.x, y: pos.y };
-  const primary = screen.getPrimaryDisplay().workArea;
-  return {
-    x: primary.x + Math.max(16, Math.round((primary.width - OVERLAY_PRESET.width) / 2)),
-    y: primary.y + Math.max(16, Math.round((primary.height - OVERLAY_PRESET.height) * 0.18)),
-  };
+  const { x, y } = getDefaultOverlayBounds();
+  return { x, y };
 }
 
 function getDefaultOverlayBounds() {
@@ -248,8 +249,8 @@ function getFocusOverlayBounds() {
 }
 
 function getNormalOverlayBounds(mode) {
-  const storedPos = getStoredOverlayPosition();
   const saved = loadOverlayWindowState();
+  const storedPos = getStoredOverlayPosition(saved);
   const storedSize = saved?.position;
   // prompt 模式宽度由内容自适应驱动 (受 promptMaxWidth 约束), 旧物理 position.w 无意义;
   // 直接用 promptMaxWidth 作初始宽, 避免重开时先显示旧值再被前端收窄/撑开。
@@ -271,7 +272,7 @@ function getNormalOverlayBounds(mode) {
 
 function applyOverlayModeBounds() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  const mode = lastOverlayState?.mode || (lastOverlayState?.showBg === false ? 'prompt' : 'glass');
+  const mode = resolveOverlayMode();
   overlayWindow.setMinimumSize(
     mode === 'prompt' ? PROMPT_OVERLAY_MIN_SIZE.width : OVERLAY_PRESET.minWidth,
     mode === 'prompt' ? PROMPT_OVERLAY_MIN_SIZE.height : OVERLAY_PRESET.minHeight,
@@ -292,12 +293,20 @@ function persistOverlayPosition(force = false) {
   saveOverlayWindowState(saved);
 }
 
+let overlayPositionSaveForce = false;
+
 function schedulePersistOverlayPosition(force = false) {
-  if (overlayPositionSaveTimer) clearTimeout(overlayPositionSaveTimer);
-  const scheduledForce = force;
+  // 已有 force 落盘在排队时, 非 force 的调度只能延后不能降级,
+  // 否则 resize 事件会把 resize-overlay-window 的显式落盘冲掉, 程序化尺寸永不写入。
+  if (overlayPositionSaveTimer) {
+    clearTimeout(overlayPositionSaveTimer);
+    force = force || overlayPositionSaveForce;
+  }
+  overlayPositionSaveForce = force;
   overlayPositionSaveTimer = setTimeout(() => {
     overlayPositionSaveTimer = null;
-    persistOverlayPosition(scheduledForce);
+    overlayPositionSaveForce = false;
+    persistOverlayPosition(force);
   }, 180);
 }
 
@@ -315,6 +324,7 @@ function waitForServer(timeout = 40000) {
   return new Promise((resolve, reject) => {
     const check = () => {
       const req = http.get(`${SERVER_URL}/api/options`, { timeout: 1000 }, (res) => {
+        res.resume();
         if (res.statusCode === 200) return resolve();
         retry();
       });
@@ -383,7 +393,6 @@ function startPythonBackend() {
     pythonProcess = null;
     if (!isQuitting) {
       if (mainWindow) {
-        const { dialog } = require('electron');
         dialog.showErrorBox('后端已退出', `Python 后端进程异常退出 (code ${code})。\n请查看日志确认原因后重试。`);
       }
       app.quit();
@@ -442,7 +451,7 @@ function createOverlayWindow() {
     return overlayWindow;
   }
 
-  const initialMode = lastOverlayState?.mode || (lastOverlayState?.showBg === false ? 'prompt' : 'glass');
+  const initialMode = resolveOverlayMode();
   const initialBounds = initialMode === 'focus' ? getFocusOverlayBounds() : getNormalOverlayBounds(initialMode);
 
   // 透明浮窗: 视觉上能看到桌面, 需要 transparent: true + alpha=0 背景.
@@ -485,21 +494,24 @@ function createOverlayWindow() {
     } catch { /* older electron */ }
   }
 
+// Content protection / 透明背景 / 禁用焦点需要在多个时机重复断言 (防御纵深)
+function assertOverlayChrome(withAlwaysOnTop = false) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  overlayWindow.setContentProtection(true);
+  overlayWindow.setBackgroundColor('#00000000');
+  overlayWindow.setFocusable(false);
+  if (withAlwaysOnTop) overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
+}
+
   overlayWindow._overlayReady = false;
 
   overlayWindow.once('ready-to-show', () => {
-    if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    overlayWindow.setContentProtection(true);
-    overlayWindow.setBackgroundColor('#00000000');
-    overlayWindow.setFocusable(false);
-    overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
+    assertOverlayChrome(true);
   });
   overlayWindow.loadURL(`${SERVER_URL}?overlay=1`);
   overlayWindow.webContents.on('did-finish-load', () => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    overlayWindow.setContentProtection(true);
-    overlayWindow.setBackgroundColor('#00000000');
-    overlayWindow.setFocusable(false);
+    assertOverlayChrome();
     if (lastOverlayState) {
       overlayWindow.webContents.send('overlay-state', lastOverlayState);
     }
@@ -512,11 +524,7 @@ function createOverlayWindow() {
     }, process.platform === 'win32' ? 120 : 0);
   });
   overlayWindow.on('show', () => {
-    if (!overlayWindow || overlayWindow.isDestroyed()) return;
-    overlayWindow.setContentProtection(true);
-    overlayWindow.setBackgroundColor('#00000000');
-    overlayWindow.setFocusable(false);
-    overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
+    assertOverlayChrome(true);
   });
 
   overlayWindow.on('closed', () => {
@@ -625,38 +633,38 @@ function notifyConfigUpdated(config) {
   }
 }
 
-function postBackend(pathname, body = '{}') {
+function requestBackend(pathname, { method = 'GET', body = null } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      `${SERVER_URL}${pathname}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-        },
-      },
-      (res) => {
-        let raw = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => { raw += chunk; });
-        res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            if (!raw) { resolve({ ok: true }); return; }
-            try { resolve(JSON.parse(raw)); } catch { resolve({ ok: true }); }
-            return;
-          }
-          const backendError = new Error(raw || res.statusMessage || `HTTP ${res.statusCode}`);
-          backendError.statusCode = res.statusCode;
-          backendError.responseBody = raw;
-          reject(backendError);
-        });
-      }
-    );
+    const headers = {};
+    if (body !== null) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(body);
+    }
+    const req = http.request(`${SERVER_URL}${pathname}`, { method, headers }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => { raw += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          const emptyFallback = method === 'POST' ? { ok: true } : {};
+          if (!raw) { resolve(emptyFallback); return; }
+          try { resolve(JSON.parse(raw)); } catch { resolve(emptyFallback); }
+          return;
+        }
+        const backendError = new Error(raw || res.statusMessage || `HTTP ${res.statusCode}`);
+        backendError.statusCode = res.statusCode;
+        backendError.responseBody = raw;
+        reject(backendError);
+      });
+    });
     req.on('error', reject);
-    req.write(body);
+    if (body !== null) req.write(body);
     req.end();
   });
+}
+
+function postBackend(pathname, body = '{}') {
+  return requestBackend(pathname, { method: 'POST', body });
 }
 
 function describeBackendError(error, fallback = '未知错误') {
@@ -1014,23 +1022,7 @@ function captureServerScreenThroughDesktop() {
 }
 
 function getBackend(pathname) {
-  return new Promise((resolve, reject) => {
-    const req = http.request(`${SERVER_URL}${pathname}`, { method: 'GET' }, (res) => {
-      let raw = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => { raw += chunk; });
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          if (!raw) { resolve({}); return; }
-          try { resolve(JSON.parse(raw)); } catch { resolve({}); }
-          return;
-        }
-        reject(new Error(raw || res.statusMessage || `HTTP ${res.statusCode}`));
-      });
-    });
-    req.on('error', reject);
-    req.end();
-  });
+  return requestBackend(pathname);
 }
 
 async function getMultiScreenIdleMs() {
@@ -1068,11 +1060,9 @@ async function addMultiServerScreenShot() {
 function createTray() {
   const iconPath = path.join(__dirname, 'icon.png');
   let icon;
-  try {
-    icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
-  } catch {
-    icon = createTrayIcon();
-  }
+  icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) icon = createTrayIcon();
+  icon = icon.resize({ width: 16, height: 16 });
 
   tray = new Tray(icon);
   tray.setToolTip(APP_DISPLAY_NAME);
@@ -1108,7 +1098,7 @@ function createTray() {
 }
 
 function isFocusOverlayActive() {
-  const mode = lastOverlayState?.mode || (lastOverlayState?.showBg === false ? 'prompt' : 'glass');
+  const mode = resolveOverlayMode();
   return Boolean(lastOverlayState?.visible) && mode === 'focus';
 }
 
@@ -1469,7 +1459,7 @@ ipcMain.handle('sync-overlay-window', (_event, payload = {}) => {
 ipcMain.handle('get-overlay-state', () => lastOverlayState);
 ipcMain.handle('resize-overlay-window', (_event, payload = {}) => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false };
-  const mode = lastOverlayState?.mode || (lastOverlayState?.showBg === false ? 'prompt' : 'glass');
+  const mode = resolveOverlayMode();
   if (mode !== 'prompt') return { ok: true, skipped: true };
 
   const bounds = overlayWindow.getBounds();
@@ -1599,7 +1589,6 @@ app.whenReady().then(async () => {
   try {
     startPythonBackend();
   } catch (error) {
-    const { dialog } = require('electron');
     dialog.showErrorBox('后端启动失败', error?.message || String(error));
     app.quit();
     return;

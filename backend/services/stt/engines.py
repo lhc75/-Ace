@@ -54,8 +54,6 @@ def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = 16000) -> bytes:
 # ---------------------------------------------------------------------------
 
 DOUBAO_ASR_WS_URL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
-MSG_FULL_CLIENT_REQUEST = 0x01
-MSG_AUDIO_ONLY = 0x02
 MSG_FULL_SERVER_RESPONSE = 0x09
 MSG_ERROR = 0x0F
 FLAG_LAST_AUDIO = 0x02

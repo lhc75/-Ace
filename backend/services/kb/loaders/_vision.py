@@ -90,18 +90,9 @@ def vision_caption(png_path: Path, *, deadline_s: float = 20.0) -> Optional[str]
 
 
 def _pick_vision_model():
-    """复用 vision_verify 的选模型逻辑：supports_vision + enabled + 有 api_key。"""
+    """复用 vision_verify 的选模型逻辑：supports_vision + enabled + 有效 api_key。"""
     try:
-        from core.config import get_config  # type: ignore
+        from services.vision_verify import pick_vision_model  # type: ignore
     except Exception:  # pragma: no cover
         return None
-    cfg = get_config()
-    for m in getattr(cfg, "models", []) or []:
-        if (
-            getattr(m, "supports_vision", False)
-            and bool(getattr(m, "enabled", True))
-            and getattr(m, "api_key", "")
-            and m.api_key not in ("", "sk-your-api-key-here")
-        ):
-            return m
-    return None
+    return pick_vision_model()

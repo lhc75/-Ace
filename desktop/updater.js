@@ -51,7 +51,7 @@ function emit(payload) {
 }
 
 /** GET JSON（跟随重定向），超时或失败抛错。GitHub API 要求显式 User-Agent。 */
-function fetchJson(url) {
+function fetchJson(url, redirectDepth = 0) {
   return new Promise((resolve, reject) => {
     const request = net.request({
       url,
@@ -64,8 +64,14 @@ function fetchJson(url) {
     }, REQUEST_TIMEOUT_MS);
     request.on('response', (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        // 消费旧响应释放 socket, 且限制重定向深度防止无限循环
+        response.resume();
         clearTimeout(timer);
-        fetchJson(response.headers.location).then(resolve, reject);
+        if (redirectDepth >= 5) {
+          reject(new Error('更新接口重定向次数过多'));
+          return;
+        }
+        fetchJson(response.headers.location, redirectDepth + 1).then(resolve, reject);
         return;
       }
       let body = '';
@@ -138,6 +144,9 @@ function downloadUpdate(plan, version) {
 
   const fail = (message) => {
     downloading = false;
+    file.destroy();
+    // 清掉半成品, 避免 Downloads 里残留损坏的同名 dmg
+    try { fs.unlinkSync(targetPath); } catch { /* 文件可能还没创建 */ }
     emit({ phase: 'error', version, error: message });
   };
 
@@ -150,7 +159,6 @@ function downloadUpdate(plan, version) {
     request.on('response', (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         if (redirectDepth >= 5) {
-          file.destroy();
           fail('下载地址重定向次数过多');
           return;
         }
@@ -158,7 +166,6 @@ function downloadUpdate(plan, version) {
         return;
       }
       if (response.statusCode !== 200) {
-        file.destroy();
         fail(`下载失败 (HTTP ${response.statusCode})`);
         return;
       }
@@ -183,12 +190,10 @@ function downloadUpdate(plan, version) {
         }
       });
       response.on('error', (err) => {
-        file.destroy();
         fail(err.message);
       });
     });
     request.on('error', (err) => {
-      file.destroy();
       fail(err.message);
     });
     request.end();

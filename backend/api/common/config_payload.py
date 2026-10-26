@@ -1,4 +1,4 @@
-from core.config import ALIYUN_STT_MODEL_OPTIONS, model_health_fingerprint
+from core.config import ALIYUN_STT_MODEL_OPTIONS, has_valid_api_key, model_health_fingerprint
 from services.storage.resume_history import get_filename_for_id
 from services.web_search import is_valid_api_key as is_valid_web_search_key
 
@@ -129,7 +129,7 @@ def build_config_payload(cfg) -> dict:
             if resume_active_history_id is not None
             else None
         ),
-        "api_key_set": bool(active_model.api_key and active_model.api_key not in ("", "sk-your-api-key-here")),
+        "api_key_set": has_valid_api_key(active_model.api_key),
         "review_enabled": bool(getattr(cfg, "review_enabled", False)),
         "review_model_index": int(getattr(cfg, "review_model_index", 0)),
     }

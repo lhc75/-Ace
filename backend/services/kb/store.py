@@ -11,10 +11,11 @@
 """
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 from core.logger import get_logger
 
@@ -80,11 +81,22 @@ class KBStore:
         conn.execute("PRAGMA foreign_keys=ON;")
         return conn
 
-    def close(self) -> None:
-        pass
+    @contextlib.contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """连接上下文: with 包住提交/回滚, finally 保证关闭。
+
+        sqlite3.Connection 自己的 with 只做 commit/rollback 不 close,
+        直接用会依赖 GC 回收连接。
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def init_schema(self) -> None:
-        with self._lock, self._connect() as conn:
+        with self._lock, self._session() as conn:
             conn.executescript(_SCHEMA_SQL + _FTS_SQL)
             self._migrate_fts(conn)
 
@@ -105,7 +117,7 @@ class KBStore:
         _log.info("kb_fts 已迁移为双列加权索引, 重建 %d 行", len(rows))
 
     def list_tables(self) -> set[str]:
-        with self._connect() as conn:
+        with self._session() as conn:
             rows = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type IN ('table','view')"
             ).fetchall()
@@ -119,7 +131,7 @@ class KBStore:
         loader: str,
         title: Optional[str],
     ) -> int:
-        with self._lock, self._connect() as conn:
+        with self._lock, self._session() as conn:
             conn.execute(
                 """
                 INSERT INTO kb_doc(path, mtime, size, loader, title, status, error)
@@ -138,7 +150,7 @@ class KBStore:
             return int(row["id"])
 
     def set_status(self, path: str, status: str, error: Optional[str]) -> None:
-        with self._lock, self._connect() as conn:
+        with self._lock, self._session() as conn:
             conn.execute(
                 "UPDATE kb_doc SET status=?, error=? WHERE path=?",
                 (status, error, path),
@@ -146,7 +158,7 @@ class KBStore:
 
     def delete_doc(self, path: str) -> None:
         """删 kb_doc + 先清相关 FTS 行 (外键 cascade 不会触及 FTS 独立表)。"""
-        with self._lock, self._connect() as conn:
+        with self._lock, self._session() as conn:
             row = conn.execute("SELECT id FROM kb_doc WHERE path=?", (path,)).fetchone()
             if row is None:
                 return
@@ -157,7 +169,7 @@ class KBStore:
             conn.execute("DELETE FROM kb_doc WHERE id=?", (row["id"],))
 
     def get_doc(self, path: str) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._session() as conn:
             row = conn.execute("SELECT * FROM kb_doc WHERE path=?", (path,)).fetchone()
         return dict(row) if row else None
 
@@ -169,12 +181,12 @@ class KBStore:
         )
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
-        with self._connect() as conn:
+        with self._session() as conn:
             rows = conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
 
     def stats(self) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._session() as conn:
             doc_n = conn.execute("SELECT COUNT(*) AS n FROM kb_doc").fetchone()["n"]
             chunk_n = conn.execute("SELECT COUNT(*) AS n FROM kb_chunk").fetchone()["n"]
             last = conn.execute("SELECT MAX(mtime) AS m FROM kb_doc").fetchone()["m"]
@@ -187,7 +199,7 @@ class KBStore:
     def replace_chunks(self, doc_id: int, chunks: Iterable[Chunk]) -> None:
         """事务内替换 doc 的所有 chunk, 同步写 kb_fts (含 bigram)。"""
         chunks_list = list(chunks)
-        with self._lock, self._connect() as conn:
+        with self._lock, self._session() as conn:
             old_ids = [
                 r["id"]
                 for r in conn.execute(

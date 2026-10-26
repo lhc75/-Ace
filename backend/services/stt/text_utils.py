@@ -228,7 +228,6 @@ def _normalize_slow_speech_intraword_punct(text: str) -> str:
     return t
 
 
-_normalize_slow_speech_commas = _normalize_slow_speech_intraword_punct
 
 
 _REPEAT_CHAR = re.compile(r"([\u4e00-\u9fffA-Za-z,，.。!?？！])\1{4,}")
@@ -625,7 +624,6 @@ _PRONOUN_FOLLOWUP = re.compile(
 def classify_followup(
     text: str,
     prev_question: str,
-    prev_answer: str,
 ) -> bool:
     """Heuristically decide whether *text* is a follow-up to the previous Q&A."""
     if not text or not prev_question:

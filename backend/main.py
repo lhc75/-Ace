@@ -107,6 +107,8 @@ async def lifespan(app: FastAPI):
     assist.shutdown_background_workers()
     dispatch_task.cancel()
     heartbeat_task.cancel()
+    # cancel 只是请求: 等任务真正退出, 避免正在 _safe_send 的消息被中途丢弃
+    await asyncio.gather(dispatch_task, heartbeat_task, return_exceptions=True)
 
 
 def _preload_stt():

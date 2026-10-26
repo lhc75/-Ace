@@ -224,6 +224,8 @@ def retrieve(
             conn.interrupt()
         except Exception:
             pass
+        # interrupt() 之后 execute 立即报错返回, runner 只剩纯 Python 收尾;
+        # 50ms 是留给这段收尾的窗口 — 不能再长, deadline 是 ASR 链路的硬性时延约束。
         done.wait(0.05)
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     try:

@@ -30,18 +30,6 @@ def _uploads_dir() -> str:
     return d
 
 
-def _ensure_resume_summary_column(conn: sqlite3.Connection) -> None:
-    """旧库可能缺列，避免 SELECT/UPDATE 报错或 INSERT 与表结构不一致。"""
-    try:
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(resume_entries)").fetchall()]
-        if not cols or "resume_summary" in cols:
-            return
-        conn.execute("ALTER TABLE resume_entries ADD COLUMN resume_summary TEXT")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-
-
 def _row_get(row: sqlite3.Row, key: str, default: Any = None) -> Any:
     try:
         v = row[key]
@@ -54,7 +42,6 @@ def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    _ensure_resume_summary_column(conn)
     return conn
 
 

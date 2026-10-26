@@ -3,7 +3,7 @@
 
 import re
 from typing import Literal, Optional, Sequence
-from core.config import get_config
+from core.config import SCREEN_CAPTURE_REGION_OPTIONS, get_config
 from services.kb.types import KBHit
 from services.resume import RESUME_MAX_CHARS
 
@@ -156,7 +156,7 @@ _PROJECT_GROUNDING_RULE = (
 
 def _normalize_screen_region(region: Optional[str]) -> str:
     r = (region or "left_half").strip()
-    if r in ("full", "left_half", "right_half", "top_half", "bottom_half"):
+    if r in SCREEN_CAPTURE_REGION_OPTIONS:
         return r
     return "left_half"
 

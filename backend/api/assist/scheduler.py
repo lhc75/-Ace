@@ -8,6 +8,8 @@ keeps the mutable scheduling decisions testable and isolated.
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from core.config import has_valid_api_key
 from typing import Any, Callable, Optional, Tuple
 
 TaskImage = Optional[str | list[str]]
@@ -42,7 +44,7 @@ def is_stale_inflight_asr_task(task: TaskPayload, latest_asr_turn_id: int) -> bo
 
 
 def key_ok(model) -> bool:
-    return bool(model.api_key and model.api_key not in ("", "sk-your-api-key-here"))
+    return has_valid_api_key(model.api_key)
 
 
 def model_eligible(i: int, model, need_vision: bool, get_model_health: Callable[[int], Optional[str]]) -> bool:

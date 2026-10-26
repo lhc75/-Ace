@@ -8,7 +8,7 @@ from openai import OpenAI
 import openai
 import requests
 from typing import Callable, Generator, Optional
-from core.config import get_config
+from core.config import get_config, has_valid_api_key
 from core.logger import get_logger
 
 _log = get_logger("llm.streaming")
@@ -137,7 +137,7 @@ def get_client_for_model(model_cfg) -> OpenAI:
 def has_vision_model() -> bool:
     cfg = get_config()
     for m in cfg.models:
-        if m.supports_vision and m.api_key and m.api_key not in ("", "sk-your-api-key-here"):
+        if m.supports_vision and has_valid_api_key(m.api_key):
             return True
     return False
 
@@ -187,7 +187,7 @@ def vision_extract_text(image_base64_list: list[str]) -> str:
     cfg = get_config()
     model = None
     for m in cfg.models:
-        if m.supports_vision and m.api_key and m.api_key not in ("", "sk-your-api-key-here"):
+        if m.supports_vision and has_valid_api_key(m.api_key):
             model = m
             break
     if not model:
@@ -276,7 +276,7 @@ def vision_extract_search_query(
     if not getattr(model_cfg, "supports_vision", False) or not image_base64_list:
         return ""
     api_key = str(getattr(model_cfg, "api_key", "") or "").strip()
-    if not api_key or api_key in {"sk-your-api-key-here", "__IA_KEEP_EXISTING_API_KEY__"}:
+    if not has_valid_api_key(api_key):
         return ""
 
     parts: list[dict] = [{"type": "text", "text": VISUAL_SEARCH_QUERY_PROMPT}]
@@ -625,7 +625,7 @@ def warmup_model_connections(models=None) -> None:
         if not getattr(model_cfg, "enabled", True):
             continue
         api_key = str(getattr(model_cfg, "api_key", "") or "")
-        if not api_key or api_key in ("sk-your-api-key-here", "__IA_KEEP_EXISTING_API_KEY__"):
+        if not has_valid_api_key(api_key):
             continue
         threading.Thread(
             target=_warm, args=(model_cfg,), daemon=True, name=f"llm-warmup-{getattr(model_cfg, 'name', '?')}"
@@ -845,7 +845,7 @@ def chat_stream(
     full_messages.extend(clean_messages)
     models_to_try = [active_model]
     for i, m in enumerate(cfg.models):
-        if i != cfg.active_model and m.enabled and m.api_key and m.api_key not in ("", "sk-your-api-key-here"):
+        if i != cfg.active_model and m.enabled and has_valid_api_key(m.api_key):
             models_to_try.append(m)
 
     last_error = None

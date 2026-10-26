@@ -7,15 +7,24 @@ import math
 import os
 import secrets
 
-from core.logger import get_logger
-
-logger = get_logger(__name__)
 import shutil
 import threading
+
+from core.logger import get_logger
 
 logger = get_logger(__name__)
 
 DEFAULT_TEMPERATURE = 0.5
+
+# 配置里表示"未填"的占位 key, 以及前端"保持已保存 key 不变"的哨兵
+# (哨兵在保存配置时已解析成真实 key, 这里再排除一层只是防御)。
+PLACEHOLDER_API_KEY = "sk-your-api-key-here"
+KEEP_EXISTING_API_KEY = "__IA_KEEP_EXISTING_API_KEY__"
+
+
+def has_valid_api_key(api_key) -> bool:
+    # 有效 API key = 非空且不是占位符/保持哨兵
+    return bool(api_key) and api_key not in ("", PLACEHOLDER_API_KEY, KEEP_EXISTING_API_KEY)
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_WEB_SEARCH_BASE_URL = "https://api.deepseek.com"
 THINK_EFFORT_OPTIONS = [

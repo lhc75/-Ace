@@ -31,10 +31,17 @@ def _parse_device_id(body: dict) -> int:
     device_id = body.get("device_id")
     if device_id is None:
         raise HTTPException(400, "device_id 必须提供")
+    return _parse_optional_device_id(device_id, "device_id")
+
+
+def _parse_optional_device_id(value, field: str) -> int | None:
+    """可选设备 id: None 原样返回, 否则必须是整数"""
+    if value is None:
+        return None
     try:
-        return int(device_id)
+        return int(value)
     except (TypeError, ValueError):
-        raise HTTPException(400, "device_id 必须是整数")
+        raise HTTPException(400, f"{field} 必须是整数")
 
 
 def _broadcast_transcription_updates(
@@ -83,20 +90,8 @@ async def api_start(body: dict):
     candidate_mic_device_id = body.get("candidate_mic_device_id")
     if not written_exam and device_id is None:
         raise HTTPException(400, "\u8bf7\u9009\u62e9\u97f3\u9891\u8bbe\u5907")
-    if device_id is not None:
-        try:
-            dev = int(device_id)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "device_id \u5fc5\u987b\u662f\u6574\u6570")
-    else:
-        dev = None
-    if candidate_mic_device_id is not None:
-        try:
-            candidate_dev = int(candidate_mic_device_id)
-        except (TypeError, ValueError):
-            raise HTTPException(400, "candidate_mic_device_id \u5fc5\u987b\u662f\u6574\u6570")
-    else:
-        candidate_dev = None
+    dev = _parse_optional_device_id(device_id, "device_id")
+    candidate_dev = _parse_optional_device_id(candidate_mic_device_id, "candidate_mic_device_id")
     try:
         if candidate_dev is None:
             await run_in_threadpool(start_nonblocking, dev)

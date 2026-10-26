@@ -21,6 +21,8 @@ from typing import Callable, Optional
 
 from .aliyun import (
     ALIYUN_ASR_WS_URL,
+    _classify_task_failed,
+    _transport_error,
     AliyunSTTAuthError,
     AliyunSTTConnectionError,
     AliyunSTTError,
@@ -32,35 +34,6 @@ from .engines import _is_websocket_timeout, websocket
 AuthCallback = Callable[[str], None]
 # 中间结果 / 定稿结果回调：参数为 (句子编号, 文本)。中间结果用空文本表示“清除进行中这一行”。
 InterimCallback = Callable[[int, str], None]
-
-
-def _redact(message: object, api_key: str) -> str:
-    """日志与异常里统一抹掉 API Key，避免密钥随错误信息泄露到前端或日志文件。"""
-    text = str(message)
-    if api_key:
-        text = text.replace(api_key, "[REDACTED]")
-    return text[:200]
-
-
-def _transport_error(error: Exception, api_key: str) -> AliyunSTTError:
-    detail = _redact(error, api_key)
-    if _is_websocket_timeout(error):
-        return AliyunSTTTimeoutError(f"阿里千问 ASR 连接或传输超时: {detail}")
-    if getattr(error, "status_code", None) in (401, 403):
-        return AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
-    return AliyunSTTConnectionError(f"阿里千问 ASR 连接异常: {detail}")
-
-
-def _classify_task_failed(header: dict, api_key: str) -> AliyunSTTError:
-    code = str(header.get("error_code") or "UNKNOWN")
-    detail = _redact(f"{code}: {header.get('error_message') or '任务失败'}", api_key)
-    normalized_code = code.lower().replace("_", "").replace("-", "")
-    if normalized_code in {"invalidapikey", "unauthorized", "forbidden", "accessdenied", "401", "403"}:
-        return AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
-    # task-failed 一律是终态（含错误详情里带 "timeout" 的情况），不能返回
-    # AliyunSTTTimeoutError——_recv_loop 把该类异常当作 recv 轮空继续循环，
-    # 会把一次服务端任务失败吞掉，流永远卡在 healthy。
-    return AliyunSTTProviderError(f"阿里千问 ASR 任务失败: {detail}")
 
 
 class AliyunInterviewerStream:
@@ -330,7 +303,7 @@ class AliyunInterviewerStream:
         if header.get("task_id") != self._task_id:
             return None
         if header.get("event") == "task-failed":
-            raise _classify_task_failed(header, self.api_key)
+            raise _classify_task_failed(header, self.api_key, timeout_is_terminal=False)
         return message
 
     def _send_loop(self) -> None:

@@ -480,6 +480,11 @@ def _publishable_transcription(text: str, cfg, *, min_sig: Optional[int] = None)
     return transcription_for_publish(postprocess_interview_transcription(text), sig)
 
 
+def _candidate_min_sig(cfg) -> int:
+    """候选人口述的有效字符下限比面试官高: 过滤语气词/碎句, 避免噪音进入复盘。"""
+    return max(3, int(getattr(cfg, "transcription_min_sig_chars", 2) or 2))
+
+
 def _signal_flush_tick(session, now_mono: float) -> None:
     """通知 flush worker 跑一次合并缓冲检查；队列满则说明已有待处理 tick，直接跳过。"""
     try:
@@ -1415,12 +1420,8 @@ def _interviewer_asr_worker(
                 scope="interviewer",
                 fallback_on_empty_remote=True,
             )
-            text = postprocess_interview_transcription(text)
             stt_ms = (time.monotonic() - t0) * 1000
-            pub = transcription_for_publish(
-                text,
-                getattr(current_cfg, "transcription_min_sig_chars", 2),
-            )
+            pub = _publishable_transcription(text, current_cfg)
             _ilog.info(
                 "INTERVIEWER_ASR_SEGMENT flush_reason=%s queue_delay_ms=%.0f raw=%.1fs stt=%.0fms ratio=%.2f publish_chars=%d",
                 segment.flush_reason,
@@ -2213,7 +2214,7 @@ def _run_candidate_worker(generation: int):
             )
             pub = _publishable_transcription(
                 text, local_cfg,
-                min_sig=max(3, int(getattr(local_cfg, "transcription_min_sig_chars", 2) or 2)),
+                min_sig=_candidate_min_sig(local_cfg),
             )
             if pub:
                 replaced_partial = bool(current_segment_id and last_partial_text)
@@ -2324,7 +2325,7 @@ def _run_candidate_worker(generation: int):
                         )
                         partial_pub = _publishable_transcription(
                             partial_text, cfg,
-                            min_sig=max(3, int(getattr(cfg, "transcription_min_sig_chars", 2) or 2)),
+                            min_sig=_candidate_min_sig(cfg),
                         )
                         if partial_pub and partial_pub != last_partial_text:
                             last_partial_text = partial_pub

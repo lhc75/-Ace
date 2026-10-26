@@ -644,10 +644,6 @@ class AudioCapture:
         if sc_thread and sc_thread.is_alive() and sc_thread is not threading.current_thread():
             sc_thread.join(timeout=1.0)
 
-    @property
-    def current_owner(self) -> Optional[str]:
-        return self._owner
-
     # 单次最多取多少个 chunk(每个 ~64ms),避免消费者打盹后一次涌出 9 秒大块
     # 引发 ASR 处理尖刺。32 个 chunk ≈ 2 秒音频,够 STT 一次推理用。
     MAX_DRAIN_CHUNKS = 32
@@ -727,7 +723,6 @@ class VADBuffer:
         self._preroll: list[np.ndarray] = []
         self._speech_started = False
         self._silence_start: Optional[float] = None
-        self._speech_start: Optional[float] = None
         self._speech_audio_samples = 0
         self._preroll_samples = 0
         self._trailing_silence_samples = 0
@@ -790,9 +785,6 @@ class VADBuffer:
                 if preroll_chunks:
                     self._buffer.extend(preroll_chunks)
                     self._speech_audio_samples += sum(len(chunk) for chunk in preroll_chunks)
-                    self._speech_start = now - (self._speech_audio_samples / self.sample_rate)
-                else:
-                    self._speech_start = now
             self._silence_start = None
             self._trailing_silence_samples = 0
             self._buffer.append(audio)
@@ -850,7 +842,6 @@ class VADBuffer:
         self._buffer.clear()
         self._speech_started = False
         self._silence_start = None
-        self._speech_start = None
         self._speech_audio_samples = 0
         self._trailing_silence_samples = 0
 

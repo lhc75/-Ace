@@ -12,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from core.auth import get_token, is_auth_disabled, is_loopback_host
 from core.config import (
-    get_config, update_config,
+    get_config, update_config, has_valid_api_key,
     POSITION_OPTIONS, LANGUAGE_OPTIONS, WHISPER_MODEL_OPTIONS, STT_PROVIDER_OPTIONS,
     ALIYUN_STT_MODEL_OPTIONS, REMOTE_STT_PROVIDERS,
     SCREEN_CAPTURE_REGION_OPTIONS, DEFAULT_WEB_SEARCH_BASE_URL,
@@ -64,6 +64,20 @@ def _stt_provider_signature(cfg, provider: str) -> tuple:
 # Router 层做流式校验是为了在拿到 Content-Length 或读到超限时立即拒绝,
 # 避免恶意客户端发送 GB 级 body 把整个文件读进内存触发 OOM.
 _RESUME_UPLOAD_CHUNK = 1 * 1024 * 1024
+
+def _reset_stt_circuits_on_signature_change(cfg_a, cfg_b, *, only_remote: bool = False):
+    """两个配置快照间 STT 签名变化时重置对应熔断器 (面试官/候选人两路)。"""
+    for scope, field in (("interviewer", "stt_provider"), ("candidate", "candidate_stt_provider")):
+        provider_a = getattr(cfg_a, field, "whisper")
+        provider_b = getattr(cfg_b, field, "whisper")
+        if only_remote and provider_a not in REMOTE_STT_PROVIDERS:
+            continue
+        if (
+            _stt_provider_signature(cfg_a, provider_a)
+            != _stt_provider_signature(cfg_b, provider_b)
+        ):
+            reset_stt_circuit(scope)
+
 
 def _has_enabled_model(models: list) -> bool:
     return any(bool(getattr(model, "enabled", True)) for model in models)
@@ -290,7 +304,7 @@ async def api_get_models_full():
                 "enabled": getattr(mdl, "enabled", True),
                 "think_enabled_params": getattr(mdl, "think_enabled_params", {}) or {},
                 "think_disabled_params": getattr(mdl, "think_disabled_params", {}) or {},
-                "has_key": bool(mdl.api_key and mdl.api_key not in ("", "sk-your-api-key-here")),
+                "has_key": has_valid_api_key(mdl.api_key),
                 "web_search_enabled": bool(getattr(mdl, "web_search_enabled", False)),
                 "web_search_api_base_url": (
                     getattr(mdl, "web_search_api_base_url", "") or DEFAULT_WEB_SEARCH_BASE_URL
@@ -495,14 +509,7 @@ async def api_update_config(body: ConfigUpdate):
     except (TypeError, ValueError, ValidationError) as e:
         raise HTTPException(400, str(e)) from e
     current_config = get_config()
-    for scope, field in (("interviewer", "stt_provider"), ("candidate", "candidate_stt_provider")):
-        old_provider = getattr(previous_config, field, "whisper")
-        new_provider = getattr(current_config, field, "whisper")
-        if (
-            _stt_provider_signature(previous_config, old_provider)
-            != _stt_provider_signature(current_config, new_provider)
-        ):
-            reset_stt_circuit(scope)
+    _reset_stt_circuits_on_signature_change(previous_config, current_config)
     if body.whisper_language is not None:
         set_whisper_language(body.whisper_language)
     if body.whisper_model is not None:
@@ -523,10 +530,9 @@ async def api_network_info(request: Request):
     token 的 URL,自身就拒绝访问,从而避免凭证泄露。
     """
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
     except Exception:
         ip = "127.0.0.1"
     # Read PORT from env (set by start.py), fallback to 18080
@@ -691,7 +697,7 @@ async def api_list_remote_models(body: ModelListRequest):
         api_key = cfg.models[idx].api_key if 0 <= idx < len(cfg.models) else ""
     if not api_base_url:
         raise HTTPException(400, "API Base URL 不能为空")
-    if not api_key or api_key == "sk-your-api-key-here":
+    if not has_valid_api_key(api_key):
         raise HTTPException(400, "API Key 不能为空")
     try:
         return await run_in_threadpool(_list_remote_models, api_base_url, api_key)

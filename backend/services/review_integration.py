@@ -29,14 +29,8 @@ def should_create_review_session(
     配齐就创建并落盘 QA turns, 后续是否自动跑 LLM 复盘由 on_assist_stop 按
     review_enabled 决定 (关闭时置 recorded 状态, 可手动触发)。
 
-    普通语音面试仅当以下条件全部满足才创建:
-    1. interviewer 音频设备有效
-    2. candidate mic 有效
-    3. candidate ASR 开启
-    4. 两个设备不同
-
-    笔试模式没有 interviewer 音频设备, 但仍会产生截图题目和答案, 也需要落入
-    面试复盘, 因此 written_exam_mode=True 时允许创建无音频采集的 session。
+    普通语音面试只要有面试官音频设备就创建; 笔试模式没有面试官音频设备,
+    但仍会产生截图题目和答案, 因此 written_exam_mode=True 时直接允许创建。
     """
     if written_exam_mode:
         return True
@@ -99,7 +93,9 @@ def on_assist_stop(session: Session) -> Optional[int]:
     try:
         turn_count = len(session.qa_pairs)
         if turn_count <= 0:
-            review.delete_session(session_id)
+            # 零问答的空复盘直接丢弃: 走生命周期清理而不是 delete_session
+            # (后者对 recording 状态一律拒绝, 会留下孤儿记录并刷错误日志)
+            review.discard_empty_session(session_id)
             logger.info("Review session discarded because it has no QA turns: session_id=%d", session_id)
             return None
 
@@ -122,13 +118,11 @@ def on_assist_stop(session: Session) -> Optional[int]:
 
         # 结束录制。review_enabled 控制是否立即进入分析队列; 关闭时只落盘为
         # recorded, 保留 ended_at, 等待前端手动触发 (POST /review/sessions/{id}/generate)。
-        # 笔试练习即使只有 1 题也自动生成报告；看板自动同步仍由 AUTO_REVIEW_SYNC_MIN_TURNS 控制。
+        # 看板自动同步仍由 AUTO_REVIEW_SYNC_MIN_TURNS 控制。
         # completed 只表示分析结果已经生成。
-        source = str((review.get_session_detail(session_id) or {}).get("source") or "assist")
         auto_analyze = _should_auto_analyze(
             review_enabled=bool(get_config().review_enabled),
             turn_count=turn_count,
-            source=source,
         )
         review.end_session(
             session_id=session_id,
@@ -178,9 +172,5 @@ def _build_turn_evidence(qa) -> dict:
     }
 
 
-def _should_auto_analyze(*, review_enabled: bool, turn_count: int, source: str = "assist") -> bool:
-    if not review_enabled or turn_count <= 0:
-        return False
-    if str(source or "").strip() == "written_exam":
-        return True
-    return turn_count > 0
+def _should_auto_analyze(*, review_enabled: bool, turn_count: int) -> bool:
+    return review_enabled and turn_count > 0

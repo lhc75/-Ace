@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..types import RawDoc, RawSection
-from ._base import register
+from ._base import format_section_path, register
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _CODE_FENCE_RE = re.compile(r"^\s*```")
@@ -56,7 +56,7 @@ def _parse_markdown(text: str, *, rel_path: str) -> RawDoc:
                 heading_stack.pop()
             heading_stack.append((level, hd))
             flush()
-            current_sp = _format_section_path(title, heading_stack)
+            current_sp = format_section_path(title, heading_stack)
             continue
         buf.append(ln)
     flush()
@@ -66,16 +66,6 @@ def _parse_markdown(text: str, *, rel_path: str) -> RawDoc:
         loader="markdown",
         sections=sections,
     )
-
-
-def _format_section_path(title: Optional[str], stack: list[tuple[int, str]]) -> str:
-    parts: list[str] = []
-    if title:
-        parts.append(title)
-    for _, h in stack:
-        if h and (not parts or parts[-1] != h):
-            parts.append(h)
-    return " > ".join(parts)
 
 
 register(MarkdownLoader())

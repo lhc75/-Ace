@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
-from core.config import get_config
+from core.config import get_config, has_valid_api_key
 from core.session import get_session, conversation_lock
 from services.stt import classify_followup, normalize_transcription_for_analysis
 from services.llm import (
@@ -185,7 +185,7 @@ def _can_use_screenshot_web_search(
     if not is_valid_web_search_key(getattr(model_cfg, "web_search_api_key", "")):
         return False
     model_key = str(getattr(model_cfg, "api_key", "") or "").strip()
-    return bool(model_key and model_key not in {"sk-your-api-key-here", "__IA_KEEP_EXISTING_API_KEY__"})
+    return has_valid_api_key(model_key)
 
 
 def _prepare_answer_web_search_query(
@@ -924,7 +924,7 @@ def process_question_parallel(
         and not images
         and last_qa
         and _supports_candidate_context_source(source, meta)
-        and classify_followup(question_text, last_qa.question, actual_spoken_answer or last_qa.answer[:500])
+        and classify_followup(question_text, last_qa.question)
     ):
         is_followup = True
         followup_needs_bridge = _followup_needs_bridge(question_text)

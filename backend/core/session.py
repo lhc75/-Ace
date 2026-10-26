@@ -42,8 +42,6 @@ class Session:
     candidate_answer_segments: list[CandidateAnswerSegment] = field(default_factory=list)
     conversation_history: list[dict] = field(default_factory=list)
     qa_pairs: list[QAPair] = field(default_factory=list)
-    current_transcription: str = ""
-    current_candidate_transcription: str = ""
     current_candidate_qa_id: str = ""
     candidate_asr_busy: bool = False
     candidate_asr_active_qa_id: str = ""
@@ -55,7 +53,6 @@ class Session:
     last_device_id: int = -1
     last_candidate_mic_device_id: int = -1
     capture_is_loopback: bool = True
-    created_at: float = field(default_factory=time.time)
     system_summary: str = ""
     _compaction_running: bool = False
     _content_generation: int = 0
@@ -66,7 +63,6 @@ class Session:
     MAX_CANDIDATE_SEGMENTS = 120
     MAX_QA_PAIRS = 80
     CONVERSATION_TURNS_FOR_LLM = 6
-    SCREEN_TURNS_FOR_LLM = 2
     MAX_CHARS_PER_MESSAGE = 2000
     # 滚动摘要触发阈值:超过此条数后台压缩一次
     SUMMARY_TRIGGER = 12
@@ -81,7 +77,6 @@ class Session:
                 text=cleaned,
             )
             self.transcription_history.append(entry)
-            self.current_transcription = cleaned
             if len(self.transcription_history) > self.MAX_TRANSCRIPTION_HISTORY:
                 self.transcription_history = self.transcription_history[-self.MAX_TRANSCRIPTION_HISTORY:]
             return entry
@@ -99,7 +94,6 @@ class Session:
         cleaned = (text or "").strip()
         if not cleaned:
             return None
-        self.current_candidate_transcription = cleaned
         segment_key = (segment_id or "").strip()
         if segment_key:
             for _idx, seg in enumerate(self.candidate_answer_segments):
@@ -447,9 +441,6 @@ class Session:
                 msg for msg in self.conversation_history if msg.get("qa_id") not in removed_qa_ids
             ]
             self.system_summary = ""
-        self.current_transcription = (
-            self.transcription_history[-1].text if self.transcription_history else ""
-        )
         return sorted(removed_qa_ids)
 
     def update_transcription_texts(
@@ -473,12 +464,6 @@ class Session:
                 continue
             original[entry_id] = entry.text
             entry.text = cleaned
-        if original:
-            self.current_transcription = (
-                self.transcription_history[-1].text
-                if self.transcription_history
-                else ""
-            )
         return original
 
     def restore_transcription_texts(self, original_texts: dict[str, str]) -> list[TranscriptEntry]:
@@ -495,12 +480,6 @@ class Session:
                 continue
             entry.text = previous
             restored.append(entry)
-        if restored:
-            self.current_transcription = (
-                self.transcription_history[-1].text
-                if self.transcription_history
-                else ""
-            )
         return restored
 
     def _trim_history(self):
@@ -530,8 +509,6 @@ class Session:
         self.candidate_answer_segments.clear()
         self.conversation_history.clear()
         self.qa_pairs.clear()
-        self.current_transcription = ""
-        self.current_candidate_transcription = ""
         self.current_candidate_qa_id = ""
         self.candidate_asr_busy = False
         self.candidate_asr_active_qa_id = ""
@@ -547,19 +524,13 @@ class Session:
         self.last_device_id = -1
         self.last_candidate_mic_device_id = -1
         self.capture_is_loopback = True
-        self.created_at = time.time()
 
     def snapshot(self) -> dict:
         return {
             "is_recording": self.is_recording,
             "is_paused": self.is_paused,
             "transcriptions": [
-                asdict(item) if isinstance(item, TranscriptEntry) else {
-                    "id": f"legacy-{index}",
-                    "text": str(item),
-                    "timestamp": 0,
-                }
-                for index, item in enumerate(self.transcription_history[-50:])
+                asdict(item) for item in self.transcription_history[-50:]
             ],
             "candidate_transcriptions": list(self.candidate_transcription_history[-50:]),
             "candidate_answer_segments": [

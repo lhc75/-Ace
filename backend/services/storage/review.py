@@ -373,6 +373,31 @@ def delete_session(session_id: int) -> bool:
     return True
 
 
+def discard_empty_session(session_id: int) -> bool:
+    """Discard a session that recorded zero turns (lifecycle cleanup on stop).
+
+    Unlike delete_session this tolerates status='recording' — the caller is the
+    owner ending the session. An empty session never generated todos, so no
+    application cleanup is needed. Returns False when the session is missing
+    or already has turns.
+    """
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM review_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return False
+        turns = conn.execute(
+            "SELECT COUNT(*) AS c FROM review_turns WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()["c"]
+        if turns > 0:
+            return False
+        conn.execute("DELETE FROM review_sessions WHERE id = ?", (session_id,))
+    return True
+
+
 def delete_all_sessions() -> int:
     """Delete every review session and its turns. Returns the deleted count.
 

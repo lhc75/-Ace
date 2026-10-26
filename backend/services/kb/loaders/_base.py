@@ -37,3 +37,14 @@ def registered_loaders() -> list[Loader]:
 def clear_registry() -> None:
     """测试用：清空已注册的 loader。"""
     _REGISTRY.clear()
+
+
+def format_section_path(title: Optional[str], stack: list[tuple[int, str]]) -> str:
+    """标题栈 → "文档标题 > H1 > H2" 形式的章节路径 (markdown/docx 共用)。"""
+    parts: list[str] = []
+    if title:
+        parts.append(title)
+    for _, h in stack:
+        if h and (not parts or parts[-1] != h):
+            parts.append(h)
+    return " > ".join(parts)

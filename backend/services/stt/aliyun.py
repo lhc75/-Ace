@@ -39,6 +39,39 @@ class AliyunSTTEmptyResultError(AliyunSTTError, RemoteSTTEmptyResultError):
     """A completed task did not produce a final sentence."""
 
 
+def _redact(message: object, api_key: str) -> str:
+    """日志与异常里统一抹掉 API Key，避免密钥随错误信息泄露到前端或日志文件。"""
+    text = str(message)
+    if api_key:
+        text = text.replace(api_key, "[REDACTED]")
+    return text[:200]
+
+
+def _transport_error(error: Exception, api_key: str) -> AliyunSTTError:
+    detail = _redact(error, api_key)
+    if _is_websocket_timeout(error):
+        return AliyunSTTTimeoutError(f"阿里千问 ASR 连接或传输超时: {detail}")
+    if getattr(error, "status_code", None) in (401, 403):
+        return AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
+    return AliyunSTTConnectionError(f"阿里千问 ASR 连接异常: {detail}")
+
+
+def _classify_task_failed(header: dict, api_key: str, *, timeout_is_terminal: bool) -> AliyunSTTError:
+    """task-failed 错误分类。
+
+    timeout_is_terminal=False (双工流) 时一律不映射为 AliyunSTTTimeoutError:
+    接收循环会把超时异常当轮空继续等, 会把一次服务端任务失败吞掉。
+    """
+    code = str(header.get("error_code") or "UNKNOWN")
+    detail = _redact(f"{code}: {header.get('error_message') or '任务失败'}", api_key)
+    normalized_code = code.lower().replace("_", "").replace("-", "")
+    if normalized_code in {"invalidapikey", "unauthorized", "forbidden", "accessdenied", "401", "403"}:
+        return AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
+    if timeout_is_terminal and ("timeout" in detail.lower() or "timed out" in detail.lower()):
+        return AliyunSTTTimeoutError(f"阿里千问 ASR 任务超时: {detail}")
+    return AliyunSTTProviderError(f"阿里千问 ASR 任务失败: {detail}")
+
+
 class AliyunSTT:
     CONNECT_TIMEOUT_SEC = 10.0
     START_TIMEOUT_SEC = 10.0
@@ -67,19 +100,8 @@ class AliyunSTT:
     def change_model(self, _model_size: str) -> None:
         pass
 
-    def _safe_detail(self, detail: object) -> str:
-        message = str(detail)
-        if self.api_key:
-            message = message.replace(self.api_key, "[REDACTED]")
-        return message[:200]
-
     def _transport_error(self, error: Exception) -> AliyunSTTError:
-        detail = self._safe_detail(error)
-        if _is_websocket_timeout(error):
-            return AliyunSTTTimeoutError(f"阿里千问 ASR 连接或传输超时: {detail}")
-        if getattr(error, "status_code", None) in (401, 403):
-            return AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
-        return AliyunSTTConnectionError(f"阿里千问 ASR 连接异常: {detail}")
+        return _transport_error(error, self.api_key)
 
     def _receive(self, ws, task_id: str, deadline: float) -> dict | None:
         remaining = deadline - time.monotonic()
@@ -104,14 +126,7 @@ class AliyunSTT:
         if header.get("task_id") != task_id:
             return None
         if header.get("event") == "task-failed":
-            code = str(header.get("error_code") or "UNKNOWN")
-            detail = self._safe_detail(f"{code}: {header.get('error_message') or '任务失败'}")
-            normalized_code = code.lower().replace("_", "").replace("-", "")
-            if normalized_code in {"invalidapikey", "unauthorized", "forbidden", "accessdenied", "401", "403"}:
-                raise AliyunSTTAuthError(f"阿里千问 ASR 鉴权失败: {detail}")
-            if "timeout" in detail.lower() or "timed out" in detail.lower():
-                raise AliyunSTTTimeoutError(f"阿里千问 ASR 任务超时: {detail}")
-            raise AliyunSTTProviderError(f"阿里千问 ASR 任务失败: {detail}")
+            raise _classify_task_failed(header, self.api_key, timeout_is_terminal=True)
         return message
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000,

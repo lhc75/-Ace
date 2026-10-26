@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 
+from core.config import SCREEN_CAPTURE_REGION_OPTIONS
 from core.logger import get_logger
 
 
@@ -49,9 +50,8 @@ def capture_primary_region_data_url(region: str = "left_half", max_long_edge: in
     - Windows: CREATE_NO_WINDOW，不弹出控制台
     - 与主进程分离 session，降低终端/IDE 因本进程图形调用被抢焦点的概率
     """
-    valid = ("full", "left_half", "right_half", "top_half", "bottom_half")
     region = (region or "left_half").strip()
-    if region not in valid:
+    if region not in SCREEN_CAPTURE_REGION_OPTIONS:
         region = "left_half"
     try:
         max_long_edge = max(0, min(4000, int(max_long_edge or 0)))

@@ -103,7 +103,6 @@ class GenericInterimTranscriber:
         # 以下状态由 submit/finalize（调用方线程）与 worker 共享，一律持锁读写。
         self._last_submit_mono = 0.0
         self._sentence_id = 1
-        self._line_shown = False        # 当前句是否已推出过非空中间行
         self._last_shown_text = ""      # 进行中行当前显示的文本（稳定化基准）
         self._reject_streak = 0
         self._consecutive_failures = 0
@@ -174,7 +173,6 @@ class GenericInterimTranscriber:
         with self._state_lock:
             sentence_id = self._sentence_id
             self._sentence_id += 1
-            self._line_shown = False
             self._last_shown_text = ""
             self._reject_streak = 0
             self._last_submit_mono = 0.0  # 下一句的 interim 立刻可以出字
@@ -342,7 +340,6 @@ class GenericInterimTranscriber:
             if not self._accept_interim(text):
                 return
             self._last_shown_text = text
-            self._line_shown = True
         self._emit(sentence_id, text)
 
     def _run_final(self, audio: np.ndarray, sentence_id: int) -> None:
