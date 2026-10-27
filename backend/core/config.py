@@ -175,10 +175,18 @@ class AppConfig(BaseModel):
     # provider=generic 时为周期性整体重转写当前语句出“进行中”行（伪流式，定稿仍走逐段）；
     # 其他引擎不生效，关闭则维持逐段识别。
     interviewer_streaming_asr_enabled: bool = False
+    # 千问流式断线重连期间的待上行音频缓冲时长（秒）：音频先入缓冲再泵出，
+    # 重连成功后按序追平，断线窗口内采集的音频不丢失。0 = 关闭回补（旧行为：窗口内丢弃）。
+    assist_stream_reconnect_buffer_sec: float = 30.0
+    # 千问流式服务端 VAD 模型（仅 3.1 系列）：空=服务端默认（far_field_meeting_16k 远场）；
+    # 手机贴近麦克风等近场场景可设 near_meeting_16k。
+    aliyun_stt_vad_model: str = ""
     # 通用 ASR 伪流式的重转写间隔（毫秒）：过密会增加请求量，过疏出字慢
     generic_stt_streaming_interval_ms: int = 1200
     # 只用于“我的麦克风”：始终共享读取；开启后冲突时会尝试更保守的采样与默认输入设备。
     candidate_mic_compatibility_mode: bool = True
+    # 麦克风采集自动增益（默认关闭）：手机外放等远场低电平场景可开启，复用 loopback 路径同款 AGC。
+    mic_agc_enabled: bool = False
 
     position: str = "后端开发"
     language: str = "Python"
@@ -360,6 +368,19 @@ class AppConfig(BaseModel):
         self.assist_stream_asr_candidate_wait_sec = max(0.3, min(5.0, float(self.assist_stream_asr_candidate_wait_sec if self.assist_stream_asr_candidate_wait_sec is not None else 1.5)))
         self.assist_stream_asr_dispatch_grace_sec = max(0.0, min(3.0, float(self.assist_stream_asr_dispatch_grace_sec if self.assist_stream_asr_dispatch_grace_sec is not None else 0.5)))
         self.assist_stream_asr_silence_flush_sec = max(0.3, min(3.0, float(self.assist_stream_asr_silence_flush_sec if self.assist_stream_asr_silence_flush_sec is not None else 1.2)))
+        self.assist_stream_reconnect_buffer_sec = max(
+            0.0,
+            min(120.0, float(
+                self.assist_stream_reconnect_buffer_sec
+                if self.assist_stream_reconnect_buffer_sec is not None else 30.0
+            )),
+        )
+        vm = (self.aliyun_stt_vad_model or "").strip()
+        if vm and vm not in ("near_meeting_16k", "far_field_meeting_16k"):
+            logger.warning("aliyun_stt_vad_model=%r 不支持，已重置为空（可选 near_meeting_16k / far_field_meeting_16k）", vm)
+            vm = ""
+        self.aliyun_stt_vad_model = vm
+        self.mic_agc_enabled = bool(self.mic_agc_enabled)
         self.assist_stop_answer_wait_sec = max(0.0, min(20.0, float(self.assist_stop_answer_wait_sec)))
         self.assist_interviewer_asr_drain_timeout_sec = max(
             0.5,

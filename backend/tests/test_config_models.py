@@ -205,3 +205,22 @@ def test_aliyun_sentence_silence_and_web_search_budget_defaults_and_clamps():
 
     disabled = AppConfig(aliyun_stt_max_sentence_silence_ms=0)
     assert disabled.aliyun_stt_max_sentence_silence_ms == 0
+
+
+def test_stream_reconnect_buffer_defaults_and_clamps():
+    cfg = AppConfig()
+    assert cfg.assist_stream_reconnect_buffer_sec == 30.0
+    assert cfg.mic_agc_enabled is False
+    assert cfg.aliyun_stt_vad_model == ""
+
+    clamped = AppConfig(assist_stream_reconnect_buffer_sec=999)
+    assert clamped.assist_stream_reconnect_buffer_sec == 120.0
+    disabled = AppConfig(assist_stream_reconnect_buffer_sec=0)
+    assert disabled.assist_stream_reconnect_buffer_sec == 0.0
+
+
+def test_aliyun_vad_model_validation():
+    assert AppConfig(aliyun_stt_vad_model="near_meeting_16k").aliyun_stt_vad_model == "near_meeting_16k"
+    assert AppConfig(aliyun_stt_vad_model="far_field_meeting_16k").aliyun_stt_vad_model == "far_field_meeting_16k"
+    assert AppConfig(aliyun_stt_vad_model="bogus").aliyun_stt_vad_model == ""
+    assert AppConfig(aliyun_stt_vad_model="  near_meeting_16k  ").aliyun_stt_vad_model == "near_meeting_16k"

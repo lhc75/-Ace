@@ -471,7 +471,7 @@ def test_start_nonblocking_with_device_in_exam_mode(monkeypatch):
 
     pipeline.start_nonblocking(device_id=1)
 
-    assert audio.start_calls == [(1, "assist", {})], (
+    assert audio.start_calls == [(1, "assist", {"mic_agc": False})], (
         f"传了 device_id 时应走音频路径; 实际 start_calls={audio.start_calls}"
     )
 
@@ -568,7 +568,7 @@ def test_pause_unpause_keeps_interview_worker_alive_without_capture_error(monkey
 
     pipeline.unpause_interview()
 
-    assert audio.start_calls[-1] == (7, "assist", {})
+    assert audio.start_calls[-1] == (7, "assist", {"mic_agc": False})
     assert worker.is_alive(), "resume 后应继续复用同一条 interview worker"
 
     pipeline._stop_event.set()

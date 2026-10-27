@@ -669,8 +669,8 @@ def test_candidate_audio_start_failure_does_not_block_interviewer_chain(
     pipeline.start_nonblocking(10, 11)
 
     assert session.is_recording is True
-    assert main_audio.start_calls == [(10, "assist", {})]
-    assert candidate_audio.start_calls == [(11, "assist-candidate", {"mic_compatibility_mode": True})]
+    assert main_audio.start_calls == [(10, "assist", {"mic_agc": False})]
+    assert candidate_audio.start_calls == [(11, "assist-candidate", {"mic_compatibility_mode": True, "mic_agc": False})]
     assert len(_DeferredThread.started) == 1
     assert _DeferredThread.started[0].target is pipeline._interview_worker
     assert any(
@@ -730,8 +730,8 @@ def test_unpause_restarts_candidate_audio_from_last_device_when_worker_stopped(
 
     pipeline.unpause_interview()
 
-    assert main_audio.start_calls == [(10, "assist", {})]
-    assert candidate_audio.start_calls == [(11, "assist-candidate", {"mic_compatibility_mode": True})]
+    assert main_audio.start_calls == [(10, "assist", {"mic_agc": False})]
+    assert candidate_audio.start_calls == [(11, "assist-candidate", {"mic_compatibility_mode": True, "mic_agc": False})]
     assert session.last_candidate_mic_device_id == 11
     assert _DeferredThread.started[-1].target is pipeline._candidate_worker
 
@@ -817,7 +817,7 @@ def test_unpause_restarts_interviewer_from_last_device_when_worker_stopped(
 
     pipeline.unpause_interview()
 
-    assert main_audio.start_calls == [(10, "assist", {})]
+    assert main_audio.start_calls == [(10, "assist", {"mic_agc": False})]
     assert candidate_audio.start_calls == []
     assert session.last_device_id == 10
     assert session.is_paused is False
@@ -906,7 +906,7 @@ def test_unpause_restarts_interviewer_from_device_zero(
 
     pipeline.unpause_interview()
 
-    assert main_audio.start_calls == [(0, "assist", {})]
+    assert main_audio.start_calls == [(0, "assist", {"mic_agc": False})]
     assert candidate_audio.start_calls == []
     assert session.last_device_id == 0
     assert session.is_paused is False
@@ -964,7 +964,7 @@ def test_unpause_clears_invalid_candidate_audio_state(
 
     pipeline.unpause_interview()
 
-    assert main_audio.start_calls == [(10, "assist", {})]
+    assert main_audio.start_calls == [(10, "assist", {"mic_agc": False})]
     assert candidate_audio.start_calls == []
     assert session.last_candidate_mic_device_id == -1
     assert any(

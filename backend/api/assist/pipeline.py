@@ -6,6 +6,7 @@ import numpy as np
 import queue
 import time
 import threading
+from collections import deque
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any, Callable, Literal, Optional
@@ -144,6 +145,86 @@ class _InterviewerRuntime:
 
 _interviewer_runtime: Optional[_InterviewerRuntime] = None
 _last_interviewer_runtime_snapshot: Optional[dict[str, Any]] = None
+
+
+# 断线重连追平限速：每轮主循环在实时块之外最多额外补发的块数
+# （8 块 × 64ms ≈ 512ms/轮，约 5 倍速追平；避免瞬间打爆流内部 50 块发送队列）。
+_STREAM_BACKLOG_CATCHUP_CHUNKS = 8
+
+
+class _InterviewerStreamBacklog:
+    """千问流式断线重连期间的待上行音频缓冲（16kHz int16 PCM bytes）。
+
+    音频一律先入队、再从头部泵出喂流：流不可用时只进不出，重连成功后按序
+    追平，断线窗口内采集的音频不丢失且全局顺序不变。容量按字节封顶，超出时
+    丢最旧块并计数（宁可丢旧音频也要保住实时性）。
+    """
+
+    def __init__(self, max_bytes: int):
+        self._max_bytes = max(0, int(max_bytes))
+        self._chunks: "deque[bytes]" = deque()
+        self._bytes = 0
+        self.dropped_chunks = 0
+        self.dropped_bytes = 0
+        self.pumped_chunks = 0
+
+    def __len__(self) -> int:
+        return len(self._chunks)
+
+    @property
+    def pending_bytes(self) -> int:
+        return self._bytes
+
+    def _trim_to_capacity(self) -> None:
+        while self._chunks and self._bytes > self._max_bytes:
+            old = self._chunks.popleft()
+            self._bytes -= len(old)
+            self.dropped_chunks += 1
+            self.dropped_bytes += len(old)
+
+    def append_many(self, chunks) -> None:
+        for pcm in chunks:
+            if not pcm:
+                continue
+            self._chunks.append(pcm)
+            self._bytes += len(pcm)
+        self._trim_to_capacity()
+
+    def prepend_many(self, chunks) -> None:
+        """死流退还的未发块时间最老，必须排在缓冲最前面。"""
+        for pcm in reversed(list(chunks)):
+            if not pcm:
+                continue
+            self._chunks.appendleft(pcm)
+            self._bytes += len(pcm)
+        self._trim_to_capacity()
+
+    def pump(self, stream, max_chunks: int) -> int:
+        """把缓冲头部的块按序喂给流；喂不进去（流终结）就停，块留在缓冲里。"""
+        sent = 0
+        while sent < max_chunks and self._chunks and stream.healthy:
+            pcm = self._chunks[0]
+            if not stream.feed(pcm):
+                break
+            self._chunks.popleft()
+            self._bytes -= len(pcm)
+            sent += 1
+        self.pumped_chunks += sent
+        return sent
+
+    def clear(self) -> None:
+        self._chunks.clear()
+        self._bytes = 0
+
+
+def _new_stream_backlog(cfg) -> Optional[_InterviewerStreamBacklog]:
+    """按配置创建回补缓冲；assist_stream_reconnect_buffer_sec<=0 时返回 None（旧行为）。"""
+    sec = float(getattr(cfg, "assist_stream_reconnect_buffer_sec", 30.0) or 0.0)
+    if sec <= 0:
+        return None
+    # 16kHz × 16bit 单声道 = 32KB/s
+    return _InterviewerStreamBacklog(max_bytes=int(sec * 16000 * 2))
+
 
 
 def _is_interviewer_audio_active() -> bool:
@@ -1063,7 +1144,12 @@ def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id:
     if device_id is not None:
         capture_is_loopback = _device_is_loopback(device_id)
 
-        audio_capture.start(device_id, owner="assist")
+        # mic_agc 只对麦克风路径生效（loopback 路径本来就有 AGC）；默认 False 不改变旧行为。
+        audio_capture.start(
+            device_id,
+            owner="assist",
+            mic_agc=bool(getattr(get_config(), "mic_agc_enabled", False)),
+        )
 
         with conversation_lock:
             session.last_device_id = int(device_id)
@@ -1098,6 +1184,7 @@ def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id:
                 int(candidate_mic_device_id),
                 owner="assist-candidate",
                 mic_compatibility_mode=bool(getattr(cfg, "candidate_mic_compatibility_mode", True)),
+                mic_agc=bool(getattr(cfg, "mic_agc_enabled", False)),
             )
             with conversation_lock:
                 session.last_candidate_mic_device_id = int(candidate_mic_device_id)
@@ -1304,7 +1391,11 @@ def _unpause_interview_locked(device_id: Optional[int], candidate_mic_device_id:
         )
     )
     if should_resume_interviewer:
-        audio_capture.start(next_device_id, owner="assist")
+        audio_capture.start(
+            next_device_id,
+            owner="assist",
+            mic_agc=bool(getattr(cfg, "mic_agc_enabled", False)),
+        )
         _start_interview_worker_thread_if_needed()
     last_candidate_id = (
         _UNSET_DEVICE_ID
@@ -1337,6 +1428,7 @@ def _unpause_interview_locked(device_id: Optional[int], candidate_mic_device_id:
                 next_candidate_id,
                 owner="assist-candidate",
                 mic_compatibility_mode=bool(getattr(cfg, "candidate_mic_compatibility_mode", True)),
+                mic_agc=bool(getattr(cfg, "mic_agc_enabled", False)),
             )
             if not _candidate_thread or not _candidate_thread.is_alive():
                 _candidate_thread = threading.Thread(
@@ -1495,6 +1587,7 @@ def _start_interviewer_stream(cfg, recording_generation: int, session, notify: b
         model=getattr(cfg, "aliyun_stt_model", ""),
         sample_rate=AudioCapture.SAMPLE_RATE,
         max_sentence_silence_ms=int(getattr(cfg, "aliyun_stt_max_sentence_silence_ms", 0) or 0),
+        vad_model=getattr(cfg, "aliyun_stt_vad_model", "") or "",
         on_interim=lambda sid, text: _on_stream_interim(recording_generation, sid, text),
         on_final=lambda sid, text: _on_stream_final(recording_generation, session, sid, text),
         on_state_change=lambda state: _on_stream_state(recording_generation, state),
@@ -1694,6 +1787,10 @@ def _run_interview_worker(recording_generation: int):
         if stream is None:
             next_stream_retry_mono = time.monotonic() + 1.0
 
+    # 千问流式专属：断线重连期间的待上行回补缓冲（None = 关闭回补，保持旧行为）。
+    stream_backlog = _new_stream_backlog(cfg) if use_stream else None
+    backlog_dropped_logged = 0  # 已告警过的丢块数，避免溢出告警刷屏
+
     # 通用 ASR 伪流式（对齐千问流式体验）：说话期间按间隔整体重转写 VAD 缓存
     # 出“进行中”行（前缀稳定化，只增不跳），VAD 切段即定稿并即时派发答题；
     # 生效期间跳过逐段入队，行为与千问流式一致。
@@ -1766,6 +1863,9 @@ def _run_interview_worker(recording_generation: int):
                             stream, recording_generation, min(2.0, _interviewer_segment_drain_timeout())
                         )
                         stream = None
+                    if stream_backlog is not None:
+                        # 暂停语义 = 该时段不识别：缓冲随流一并清空，恢复后不补发。
+                        stream_backlog.clear()
                     pause_flushed = True
                 now = time.monotonic()
                 with _recording_generation_lock:
@@ -1803,9 +1903,19 @@ def _run_interview_worker(recording_generation: int):
             if use_stream:
                 if stream is not None and not stream.healthy:
                     # 流中途断开：坚持流式，自动重连（指数退避，不限次数），
-                    # 断线期间音频不入逐段队列，绝不回落为非实时路径。
+                    # 断线期间音频入回补缓冲，绝不回落为非实时路径。
                     failure_reason = str(stream.failure)[:120] if stream.failure else "stream_lost"
                     _elog.warning("interviewer stream lost: %s", failure_reason)
+                    if stream_backlog is not None:
+                        # 回收死流发送队列里已 feed 未发出的音频：它们时间最老，
+                        # 排在回补缓冲头部，重连后先于断线窗口的音频补发。
+                        unsent = stream.drain_unsent()
+                        if unsent:
+                            stream_backlog.prepend_many(unsent)
+                            _ilog.info(
+                                "INTERVIEWER_STREAM_REQUEUE unsent=%d pending_bytes=%d",
+                                len(unsent), stream_backlog.pending_bytes,
+                            )
                     stream.abort()
                     stream = None
                     next_stream_retry_mono = now  # 立即发起第一次重连
@@ -1824,6 +1934,11 @@ def _run_interview_worker(recording_generation: int):
                     if stream is not None:
                         _ilog.info("INTERVIEWER_STREAM_RECONNECT ok attempts=%d", stream_retry_attempt)
                         stream_retry_attempt = 0
+                        if stream_backlog is not None and len(stream_backlog):
+                            _ilog.info(
+                                "INTERVIEWER_STREAM_BACKLOG catchup pending_bytes=%d",
+                                stream_backlog.pending_bytes,
+                            )
                         with _recording_generation_lock:
                             if _recording_generation_is_current(recording_generation):
                                 broadcast({
@@ -1833,10 +1948,28 @@ def _run_interview_worker(recording_generation: int):
                     else:
                         next_stream_retry_mono = now + min(8.0, 2.0 ** min(stream_retry_attempt, 3))
                 streaming_active = True  # 意图级开关：重连期间同样禁止逐段识别
-                if stream is not None and stream.healthy:
-                    # 先喂流再喂 VAD：VAD 的计算耗时不能拖慢音频上行。
-                    for raw_chunk in chunks:
-                        stream.feed(_audio_to_pcm_int16(raw_chunk).astype("<i2", copy=False).tobytes())
+                # 先喂流再喂 VAD：VAD 的计算耗时不能拖慢音频上行。
+                # 回补开启：音频先入缓冲再从头部泵出，断线窗口不丢、重连后按序追平；
+                # 回补关闭（assist_stream_reconnect_buffer_sec=0）：保持旧的直接 feed。
+                pcm_chunks = [
+                    _audio_to_pcm_int16(raw_chunk).astype("<i2", copy=False).tobytes()
+                    for raw_chunk in chunks
+                ]
+                if stream_backlog is not None:
+                    stream_backlog.append_many(pcm_chunks)
+                    if stream is not None and stream.healthy:
+                        stream_backlog.pump(
+                            stream, len(pcm_chunks) + _STREAM_BACKLOG_CATCHUP_CHUNKS
+                        )
+                    if stream_backlog.dropped_chunks > backlog_dropped_logged:
+                        backlog_dropped_logged = stream_backlog.dropped_chunks
+                        _elog.warning(
+                            "interviewer stream backlog overflow, dropped_oldest=%d bytes=%d",
+                            stream_backlog.dropped_chunks, stream_backlog.dropped_bytes,
+                        )
+                elif stream is not None and stream.healthy:
+                    for pcm in pcm_chunks:
+                        stream.feed(pcm)
             else:
                 streaming_active = False
             if generic_wanted:

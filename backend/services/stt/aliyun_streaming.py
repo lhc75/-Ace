@@ -62,6 +62,7 @@ class AliyunInterviewerStream:
         model: str,
         sample_rate: int = 16000,
         max_sentence_silence_ms: int = 0,
+        vad_model: str = "",
         on_interim: InterimCallback,
         on_final: InterimCallback,
         on_state_change: AuthCallback,
@@ -72,6 +73,8 @@ class AliyunInterviewerStream:
         self.sample_rate = int(sample_rate or 16000)
         # 服务端 VAD 断句静音阈值（毫秒）；<=0 表示不下发、沿用服务端默认。
         self.max_sentence_silence_ms = max(0, int(max_sentence_silence_ms or 0))
+        # 服务端 VAD 模型（3.1 系列的断句由它控制）：空 = 服务端默认远场。
+        self.vad_model = (vad_model or "").strip()
         self._on_interim = on_interim
         self._on_final = on_final
         self._on_state_change = on_state_change
@@ -176,6 +179,10 @@ class AliyunInterviewerStream:
         self._task_id = uuid.uuid4().hex
         header = {"task_id": self._task_id, "streaming": "duplex"}
         parameters: dict = {"format": "pcm", "sample_rate": self.sample_rate}
+        if self.vad_model:
+            # 官方文档对 3.1 标明断句由 vad_model 控制（near_meeting_16k /
+            # far_field_meeting_16k，默认远场）；不认该参数的服务端会忽略它。
+            parameters["vad_model"] = self.vad_model
         if self.max_sentence_silence_ms > 0:
             # 官方 SDK 文档对 qwen-audio-3.1-asr-flash-streaming 标明支持
             # max_sentence_silence（范围 200–6000，默认 800）；不认该参数的
@@ -220,16 +227,18 @@ class AliyunInterviewerStream:
         self._receiver.start()
         self._emit_state("started")
 
-    def feed(self, pcm: bytes) -> None:
-        """把一块 16bit 单声道 PCM 交给发送线程。
+    def feed(self, pcm: bytes) -> bool:
+        """把一块 16bit 单声道 PCM 交给发送线程；返回该块是否成功入队。
 
         非阻塞：队列满时丢弃最旧的一块再入队，牺牲个别音频块换取采集主循环
         绝不被网络背压卡住（丢块会记 dropped_chunks，并在日志里告警）。
+        流已终结/收尾中时不入队，返回 False 让上层把音频留在回补缓冲里。
         """
         if not pcm or self._finishing.is_set() or not self.healthy:
-            return
+            return False
         try:
             self._send_q.put_nowait(pcm)
+            return True
         except queue.Full:
             try:
                 self._send_q.get_nowait()
@@ -240,8 +249,26 @@ class AliyunInterviewerStream:
                 self._log.warning("Aliyun stream send queue full; dropped_chunks=%d", self.dropped_chunks)
             try:
                 self._send_q.put_nowait(pcm)
+                return True
             except queue.Full:
-                pass
+                return False
+
+    def drain_unsent(self) -> list[bytes]:
+        """取出发送队列里尚未发出的音频块（FIFO 顺序），供断线重连后补发。
+
+        只应在流已进入终态、上层准备 abort() 之前调用——对健康流调用会截胡
+        正常上行的音频。正在 socket 上发送中的个别块取不走，属在飞丢失的物理
+        极限。finish 哨兵（None）会被跳过。
+        """
+        unsent: list[bytes] = []
+        while True:
+            try:
+                item = self._send_q.get_nowait()
+            except queue.Empty:
+                break
+            if item is not None:
+                unsent.append(item)
+        return unsent
 
     def finish(self, drain_timeout_sec: float) -> None:
         """正常收尾：发 finish-task，限时等把剩余定稿收完，然后关闭连接。

@@ -340,6 +340,7 @@ class AudioCapture:
         on_audio: Optional[Callable[[np.ndarray], None]] = None,
         owner: Optional[str] = None,
         mic_compatibility_mode: bool = False,
+        mic_agc: bool = False,
     ):
         """Start audio capture on the requested device.
 
@@ -347,6 +348,9 @@ class AudioCapture:
         - 已运行且 owner 不一致:抛出 AudioBusyError(409)
         - 已运行且 owner 相同:静默 no-op(等价旧行为)
         - 已运行但当前无 owner 标签:沿用旧行为 no-op
+
+        mic_agc 仅作用于麦克风路径（sounddevice）：开启后套用与 loopback 路径
+        相同的 AGC，用于手机外放等远场低电平场景；默认关闭，行为与旧版一致。
         """
         with self._lock:
             if self._running:
@@ -373,7 +377,7 @@ class AudioCapture:
                 self._use_agc = True
                 self._start_soundcard(int(device_id))
             else:
-                self._use_agc = False
+                self._use_agc = bool(mic_agc)
                 self._start_sounddevice(int(device_id), mic_compatibility_mode=mic_compatibility_mode)
 
     def _iter_queueable_chunks(self, audio: np.ndarray):
