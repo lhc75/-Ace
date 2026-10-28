@@ -122,6 +122,9 @@ let SERVER_URL = `http://127.0.0.1:${PORT}`;
 let mainWindow = null;
 let overlayWindow = null;
 let tray = null;
+// 笔试隐身模式（前端在 笔试模式+录制中 时通过 sync-stealth-mode 同步）：
+// 隐藏托盘图标、悬浮窗鼠标穿透，结束笔试恢复。
+let stealthModeActive = false;
 let pythonProcess = null;
 let isQuitting = false;
 let shortcuts = {};
@@ -494,6 +497,10 @@ function createOverlayWindow() {
   overlayWindow.setContentProtection(true);
   overlayWindow.setBackgroundColor('#00000000');
   overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
+  if (stealthModeActive) {
+    // 笔试隐身期间新建的悬浮窗同样鼠标穿透
+    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
   if (process.platform === 'darwin') {
     // macOS: NSWindowCollectionBehaviorCanJoinAllSpaces + Transient
     // 让窗口不进入 Cmd+Tab, Mission Control, Exposé, 以及 CGWindowList
@@ -1066,6 +1073,7 @@ async function addMultiServerScreenShot() {
 }
 
 function createTray() {
+  if (stealthModeActive) return; // 笔试隐身期间不创建托盘图标
   const iconPath = path.join(__dirname, 'icon.png');
   let icon;
   icon = nativeImage.createFromPath(iconPath);
@@ -1103,6 +1111,26 @@ function createTray() {
   tray.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
   // Windows 双击托盘图标也能显示
   tray.on('double-click', () => { mainWindow?.show(); mainWindow?.focus(); });
+}
+
+// 笔试隐身模式（前端在 笔试模式+录制中 时同步）：
+// 1) 销毁菜单栏/系统托盘图标——全屏考试时菜单栏不再暴露本软件；
+// 2) 悬浮窗鼠标穿透——点击落到下方考试窗口，不抢焦点、不触发失焦检测。
+// 结束笔试即恢复：重建托盘、悬浮窗恢复可交互。
+// 隐身期间悬浮窗的拖动/按钮/滚动都不可用，全部操作走全局快捷键。
+function applyStealthMode(active) {
+  const next = Boolean(active);
+  if (next === stealthModeActive) return;
+  stealthModeActive = next;
+  if (next && tray) {
+    tray.destroy();
+    tray = null;
+  } else if (!next && !tray) {
+    createTray();
+  }
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.setIgnoreMouseEvents(next, { forward: true });
+  }
 }
 
 function isFocusOverlayActive() {
@@ -1381,6 +1409,11 @@ ipcMain.handle('reset-shortcuts', () => {
   if (result.ok) sendShortcutsState();
   return result;
 });
+ipcMain.handle('sync-stealth-mode', (_event, payload = {}) => {
+  applyStealthMode(Boolean(payload?.active));
+  return { ok: true, active: stealthModeActive };
+});
+
 ipcMain.handle('sync-overlay-window', (_event, payload = {}) => {
   const style = {};
   if ('opacity' in payload) {

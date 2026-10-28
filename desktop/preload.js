@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateShortcuts: (shortcuts) => ipcRenderer.invoke('update-shortcuts', shortcuts),
   resetShortcuts: () => ipcRenderer.invoke('reset-shortcuts'),
   syncOverlayWindow: (payload) => ipcRenderer.invoke('sync-overlay-window', payload),
+  syncStealthMode: (payload) => ipcRenderer.invoke('sync-stealth-mode', payload),
   resizeOverlayWindow: (payload) => ipcRenderer.invoke('resize-overlay-window', payload),
   destroyOverlay: () => ipcRenderer.invoke('destroy-overlay'),
   getOverlayState: () => ipcRenderer.invoke('get-overlay-state'),

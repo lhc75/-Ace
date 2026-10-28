@@ -21,6 +21,7 @@ import { useShortcutsStore } from '@/stores/shortcutsStore'
 import { useInterviewWS } from '@/hooks/useInterviewWS'
 import { useAppBootstrap } from '@/hooks/useAppBootstrap'
 import { useOverlayWindowSync } from '@/hooks/useOverlayWindowSync'
+import { useStealthModeSync } from '@/hooks/useStealthModeSync'
 import { useAssistSplit } from '@/hooks/useAssistSplit'
 import { api } from '@/lib/api'
 import TranscriptionPanel from '@/components/TranscriptionPanel'
@@ -70,6 +71,7 @@ export default function App() {
   const assistTranscriptCollapsed = useUiPrefsStore((s) => s.assistTranscriptCollapsed)
   const toggleAssistTranscriptCollapsed = useUiPrefsStore((s) => s.toggleAssistTranscriptCollapsed)
   useOverlayWindowSync()
+  useStealthModeSync()
 
   const [serverScreenLoading, setServerScreenLoading] = useState(false)
   const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false)

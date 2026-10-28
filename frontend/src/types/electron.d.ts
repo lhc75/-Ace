@@ -28,6 +28,7 @@ declare global {
       updateShortcuts: (shortcuts: Array<{ action: string; key: string }>) => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>
       resetShortcuts: () => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>
       syncOverlayWindow?: (payload: Partial<OverlayStatePayload> & { visible?: boolean }) => Promise<{ ok: boolean; visible: boolean }>
+      syncStealthMode?: (payload: { active: boolean }) => Promise<{ ok: boolean }>
       resizeOverlayWindow?: (payload: { width?: number; height?: number }) => Promise<{ ok: boolean; width?: number; height?: number; skipped?: boolean }>
       destroyOverlay?: () => Promise<{ ok: boolean }>
       getOverlayState?: () => Promise<(OverlayStatePayload & { visible: boolean }) | null>
