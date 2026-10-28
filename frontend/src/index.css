@@ -1503,13 +1503,25 @@ code, pre, .font-mono {
 
 .ov-root--prompt .ov-markdown pre {
   margin: 0.28em 0 0.36em;
-  padding: 0.46em 0.58em;
-  border-radius: 6px;
+  padding: 0;
+  border-radius: 0;
   line-height: 1.36;
 }
 
 .ov-root--prompt .ov-markdown code {
   font-size: 0.84em;
+}
+
+/* 提词模式: 文字浮在桌面上, 代码块不要底框/边框/横条, 只保留描边文字 */
+.ov-shell--nobg .ov-markdown pre,
+.ov-shell--nobg .ov-markdown code,
+.ov-shell--nobg .ov-code-block,
+.ov-shell--nobg .ov-code {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
 }
 
 .ov-focus-content .ov-markdown h1,
