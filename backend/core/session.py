@@ -16,6 +16,8 @@ class QAPair:
     vision_verify_reason: str = ""
     source_transcription_ids: list[str] = field(default_factory=list)
     web_sources: list[dict] = field(default_factory=list)
+    # 截图审题的原始截图（data URL），用于 app 内回看题目图片；悬浮窗不展示。
+    images: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -191,6 +193,7 @@ class Session:
         model_name: str = "",
         source_transcription_ids: Optional[list[str]] = None,
         web_sources: Optional[list[dict]] = None,
+        images: Optional[list[str]] = None,
     ) -> QAPair:
         qa = QAPair(
             id=qa_id or f"qa-{len(self.qa_pairs)}-{int(time.time())}",
@@ -200,6 +203,7 @@ class Session:
             model_name=model_name,
             source_transcription_ids=list(source_transcription_ids or []),
             web_sources=[dict(item) for item in (web_sources or []) if isinstance(item, dict)],
+            images=[str(img) for img in (images or []) if img],
         )
         self.qa_pairs.append(qa)
         if len(self.qa_pairs) > self.MAX_QA_PAIRS:
@@ -215,6 +219,7 @@ class Session:
         model_name: str = "",
         source_transcription_ids: Optional[list[str]] = None,
         web_sources: Optional[list[dict]] = None,
+        images: Optional[list[str]] = None,
     ) -> bool:
         """Replace one completed QA pair without changing its stable id."""
         target = (qa_id or "").strip()
@@ -231,6 +236,8 @@ class Session:
             qa.model_name = model_name
             qa.source_transcription_ids = list(source_transcription_ids or qa.source_transcription_ids)
             qa.web_sources = [dict(item) for item in (web_sources or []) if isinstance(item, dict)]
+            if images is not None:
+                qa.images = [str(img) for img in images if img]
             qa.vision_verify_verdict = ""
             qa.vision_verify_reason = ""
             self._replace_conversation_turn(

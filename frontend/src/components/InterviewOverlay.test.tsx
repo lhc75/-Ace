@@ -134,7 +134,7 @@ describe('InterviewOverlay', () => {
     expect(screen.queryByText(/回看 \d+\/\d+/)).not.toBeInTheDocument()
   })
 
-  it('keeps the question counter line outside written-exam mode', () => {
+  it('never shows the question counter line in answer overlay mode', () => {
     useInterviewStore.setState({
       qaPairs: [
         { ...qa, id: 'qa-1', question: '面试题一', answer: '答案一。' },
@@ -143,8 +143,11 @@ describe('InterviewOverlay', () => {
     })
 
     render(<InterviewOverlay />)
-    expect(screen.getByText(/当前 2\/2/)).toBeInTheDocument()
-    expect(document.querySelector('.ov-review-line')).toBeInTheDocument()
+    expect(screen.getByText(/答案二/)).toBeInTheDocument()
+    // 悬浮窗只显示答案：多题时也不再出现“当前 n/n · 题目前言”行
+    expect(screen.queryByText(/当前 \d+\/\d+/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/回看 \d+\/\d+/)).not.toBeInTheDocument()
+    expect(document.querySelector('.ov-review-line')).toBeNull()
   })
 
   it('hydrates written-exam mode in the standalone overlay window', async () => {

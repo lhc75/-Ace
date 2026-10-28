@@ -157,6 +157,7 @@ export function useInterviewWS(active = true) {
           source: msg.source as string,
           modelName: msg.model_name as string,
           sourceTranscriptionIds: (msg.source_transcription_ids as string[]) || [],
+          images: Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
           replacement: Boolean(msg.replacement),
         })
         break
@@ -181,6 +182,7 @@ export function useInterviewWS(active = true) {
           Boolean(msg.replacement),
           (msg.source_transcription_ids as string[]) || undefined,
           (msg.web_sources as any[]) || undefined,
+          Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
         )
         break
       case 'answer_cancelled':

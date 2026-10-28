@@ -91,6 +91,7 @@ interface InterviewSliceActions {
       modelName?: string
       sourceTranscriptionIds?: string[]
       replacement?: boolean
+      images?: string[]
     },
   ) => void
   appendThinkChunk: (id: string, chunk: string, replacement?: boolean) => void
@@ -106,6 +107,7 @@ interface InterviewSliceActions {
     replacement?: boolean,
     sourceTranscriptionIds?: string[],
     webSources?: WebSource[],
+    images?: string[],
   ) => void
   cancelAnswer: (id: string) => void
   errorAnswer: (id: string, message: string, replacement?: boolean) => void
@@ -211,6 +213,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
                   modelLabel: meta?.modelName ?? qa.modelLabel,
                   sourceTranscriptionIds:
                     meta?.sourceTranscriptionIds ?? qa.sourceTranscriptionIds,
+                  images: meta?.images ?? qa.images,
                 }
               : qa,
           ),
@@ -231,6 +234,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
             questionSource: meta?.source,
             modelLabel: meta?.modelName,
             sourceTranscriptionIds: meta?.sourceTranscriptionIds,
+            images: meta?.images,
             status: 'streaming' as QAStatus,
           },
         ],
@@ -252,6 +256,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
     replacement = false,
     sourceTranscriptionIds,
     webSources,
+    images,
   ) => {
     if (isIgnoredResend(id, replacement)) return
     _chunkBuffer.delete(id)
@@ -273,6 +278,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
                   sourceTranscriptionIds:
                     sourceTranscriptionIds ?? qa.sourceTranscriptionIds,
                   webSources: normalizeWebSources(webSources) ?? [],
+                  images: images ?? qa.images,
                   status: 'done' as QAStatus,
                   isResending: false,
                   resendOriginal: undefined,
@@ -293,6 +299,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
               totalMs,
               sourceTranscriptionIds,
               webSources: normalizeWebSources(webSources) ?? [],
+              images,
               status: 'done' as QAStatus,
             },
           ]
@@ -442,6 +449,7 @@ export const createInterviewSlice: StateCreator<RootState, [], [], InterviewSlic
             questionSource: (qa as any).source ?? qa.questionSource,
             modelLabel: (qa as any).model_name ?? qa.modelLabel,
             sourceTranscriptionIds: (qa as any).source_transcription_ids ?? qa.sourceTranscriptionIds ?? [],
+            images: Array.isArray((qa as any).images) ? (qa as any).images : [],
             status: qa.status ?? 'done' as QAStatus,
             ...(visionVerify ? { visionVerify } : {}),
             ...(webSources ? { webSources } : {}),

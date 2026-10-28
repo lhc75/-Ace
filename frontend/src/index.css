@@ -1287,18 +1287,6 @@ code, pre, .font-mono {
   font-weight: 800;
 }
 
-.ov-review-line {
-  margin: 0 0 8px;
-  padding: 0 0 6px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-  color: rgba(100, 116, 139, 0.72);
-  font-size: 0.78em;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .ov-answer-stack {
   display: block;
   max-width: 100%;

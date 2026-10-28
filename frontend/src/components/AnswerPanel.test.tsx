@@ -334,3 +334,66 @@ describe('AnswerPanel empty recording state', () => {
     expect(toasts[toasts.length - 1]?.message).toBe('网络不可用')
   })
 })
+
+describe('AnswerPanel screenshot questions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.ask.mockReset()
+    resetStores(false)
+  })
+
+  it('renders screenshot thumbnails on the question bubble and opens a preview on click', async () => {
+    useInterviewStore.setState({
+      qaPairs: [
+        {
+          id: 'qa-img',
+          question: '截图审题',
+          answer: '用单调栈。',
+          thinkContent: '',
+          isThinking: false,
+          timestamp: 1710000002,
+          questionSource: 'server_screen_left',
+          modelLabel: 'Lite Ark',
+          status: 'done',
+          images: ['data:image/png;base64,one', 'data:image/png;base64,two'],
+        },
+      ],
+      streamingIds: [],
+    } as any)
+
+    render(<AnswerPanel />)
+
+    const thumbnails = screen.getAllByRole('button', { name: /查看截图/ })
+    expect(thumbnails).toHaveLength(2)
+    expect(screen.getByAltText('题目截图 1')).toHaveAttribute('src', 'data:image/png;base64,one')
+
+    fireEvent.click(thumbnails[1])
+    expect(screen.getByRole('dialog', { name: '截图预览' })).toBeInTheDocument()
+    expect(screen.getByAltText('题目截图预览')).toHaveAttribute('src', 'data:image/png;base64,two')
+
+    fireEvent.click(screen.getByRole('dialog', { name: '截图预览' }))
+    expect(screen.queryByRole('dialog', { name: '截图预览' })).not.toBeInTheDocument()
+  })
+
+  it('renders no thumbnails for text-only questions', () => {
+    useInterviewStore.setState({
+      qaPairs: [
+        {
+          id: 'qa-text',
+          question: 'Redis 怎么持久化？',
+          answer: 'AOF 和 RDB。',
+          thinkContent: '',
+          isThinking: false,
+          timestamp: 1710000003,
+          questionSource: 'asr',
+          modelLabel: 'Lite Ark',
+          status: 'done',
+        },
+      ],
+      streamingIds: [],
+    } as any)
+
+    render(<AnswerPanel />)
+    expect(screen.queryByRole('button', { name: /查看截图/ })).not.toBeInTheDocument()
+  })
+})

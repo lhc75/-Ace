@@ -394,12 +394,7 @@ export default function InterviewOverlay() {
 
   const renderedAnswer = hasContent ? (
     <div className="ov-answer-stack">
-      {/* 题目进度条（灰色小字）：笔试模式下不展示，避免悬浮窗上出现多余的题号计数 */}
-      {displayedQa && qaPairs.length > 1 && !isExamMode && (
-        <div className="ov-review-line">
-          {isReviewingHistory ? '回看' : '当前'} {displayedQaIndex + 1}/{qaPairs.length} · {displayedQa.question}
-        </div>
-      )}
+      {/* 悬浮窗只展示答案：不再显示“当前 n/n · 题目前言”行（截图题的前言是给 LLM 的提示词，纯属噪音） */}
       <OverlayMarkdown content={overlayAnswerSlice.text} />
       {isStreaming && <span className="ov-caret" />}
     </div>

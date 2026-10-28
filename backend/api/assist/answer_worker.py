@@ -119,9 +119,12 @@ def _context_excerpt(text: str, max_chars: int) -> str:
 
 def _written_exam_question_context_label(question: str, source: str) -> str:
     cleaned = " ".join(str(question or "").split())
+    # 无实质题面的截图题用通用标签指代：旧数据存的是整段 LLM 提示词，
+    # 1.3.12 起存的是展示用短标签；带真实文字的题面（OCR/手写备注）照常展示。
     if (
         cleaned.startswith("下图来自运行本后端")
         or "请基于图中可见信息作答" in cleaned
+        or cleaned.startswith("截图审题")
     ):
         if source == "server_screen_multi":
             return "上一批连续截图题面（无 OCR 文本，以上一版答案和当前截图为准）"
@@ -1098,7 +1101,14 @@ def process_question_parallel(
         _message_text_chars(messages_for_llm),
     )
 
-    if len(images) > 1:
+    if (source or "").startswith("server_screen_"):
+        # 截图题的 question_text 是给 LLM 的提示词（"下图来自运行本后端…"），
+        # 不是给人看的题面；展示层用短标签，app 内会直接渲染截图本身。
+        if len(images) > 1:
+            display_question = f"截图审题（连续 {len(images)} 张）"
+        else:
+            display_question = "截图审题"
+    elif len(images) > 1:
         display_question = f"{question_text} [📷 多图 x{len(images)}]"
     else:
         display_question = question_text + (" [📷 附图]" if images else "")
@@ -1121,6 +1131,7 @@ def process_question_parallel(
             "model_name": model_cfg.name,
             "model_index": model_idx,
             "source_transcription_ids": source_transcription_ids,
+            "images": images,
         }
     )
     # 候选人回答窗口用于下一轮上下文、知识记录或后续手动复盘；只要候选人 ASR 开启就绑定 qa_id。
@@ -1410,6 +1421,7 @@ def process_question_parallel(
                     "total_ms": int(gen_elapsed),
                     "source_transcription_ids": source_transcription_ids,
                     "web_sources": web_sources,
+                    "images": images,
                 }
             )
             deps.broadcast(
@@ -1461,6 +1473,7 @@ def process_question_parallel(
                         source=source,
                         model_name=model_cfg.name,
                         web_sources=web_sources,
+                        images=list(images),
                     ):
                         raise ValueError(f"QA pair not found: {replace_qa_id}")
                 else:
@@ -1478,6 +1491,7 @@ def process_question_parallel(
                         model_name=model_cfg.name,
                         source_transcription_ids=list(meta.get("source_transcription_ids") or []),
                         web_sources=web_sources,
+                        images=list(images),
                     )
             stats = get_token_stats()
             deps.logger.info(

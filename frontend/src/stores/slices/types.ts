@@ -154,6 +154,8 @@ export interface QAPair {
   timestamp: number
   questionSource?: string
   modelLabel?: string
+  // 截图审题的原始截图（data URL），仅 app 内展示，悬浮窗不渲染
+  images?: string[]
   firstTokenMs?: number
   totalMs?: number
   visionVerify?: { verdict: 'PASS' | 'FAIL' | 'UNKNOWN'; reason: string }

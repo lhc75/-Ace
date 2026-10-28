@@ -440,6 +440,14 @@ function createWindow() {
     }
   });
 
+  // macOS Dock 图标跟随主窗口显隐：窗口隐藏（笔试/面试隐蔽场景只留悬浮窗）时
+  // Dock 里也不出现本软件；窗口重新显示（托盘点击/快捷键）时恢复。
+  // Windows 主窗口本就 skipTaskbar，无需处理。
+  if (process.platform === 'darwin' && app.dock) {
+    mainWindow.on('hide', () => { app.dock.hide(); });
+    mainWindow.on('show', () => { app.dock.show(); });
+  }
+
   // 关闭按钮 = 真正退出
   mainWindow.on('close', () => {
     isQuitting = true;

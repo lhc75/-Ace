@@ -241,6 +241,7 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
   const [editing, setEditing] = useState(false)
   const [editedQuestion, setEditedQuestion] = useState(qa.question)
   const [resending, setResending] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const srcLabel = sourceLabel(qa.questionSource)
   const baseClass = animate ? 'animate-fade-up' : ''
   const canEditQuestion = !qa.questionSource?.includes('image') && !qa.questionSource?.startsWith('server_screen_')
@@ -373,6 +374,22 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
           style={{ background: 'rgb(var(--c-chat-user-bg, 0 0 0) / var(--c-chat-user-alpha, 0.05))' }}
         >
           {questionContent}
+          {qa.images && qa.images.length > 0 && (
+            <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+              {qa.images.map((img, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => setPreviewImage(img)}
+                  className="overflow-hidden rounded-md border border-bg-hover/60 transition-opacity hover:opacity-80"
+                  title={`查看截图 ${index + 1}`}
+                  aria-label={`查看截图 ${index + 1}`}
+                >
+                  <img src={img} alt={`题目截图 ${index + 1}`} className="h-20 w-auto object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {canEditQuestion && !isStreaming && !qa.isResending && !editing && (
@@ -391,11 +408,28 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
     </div>
   )
 
+  /* 截图预览灯箱：点击缩略图后全屏查看，点任意处关闭 */
+  const imageLightbox = previewImage ? (
+    <div
+      className="fixed inset-0 z-[100] flex cursor-zoom-out items-center justify-center bg-black/70 p-6"
+      onClick={() => setPreviewImage(null)}
+      role="dialog"
+      aria-label="截图预览"
+    >
+      <img
+        src={previewImage}
+        alt="题目截图预览"
+        className="max-h-full max-w-full rounded-lg object-contain"
+      />
+    </div>
+  ) : null
+
   if (stream) {
     return (
       <article className={`group/message ${baseClass}`}>
         {questionBubble}
         <div className="mt-2.5">{messageBody}</div>
+        {imageLightbox}
       </article>
     )
   }
@@ -405,6 +439,7 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
     <article className={`deck-panel group/message px-4 py-3.5 ${baseClass}`}>
       {questionBubble}
       <div className="mt-2.5 max-h-[320px] overflow-y-auto">{messageBody}</div>
+      {imageLightbox}
     </article>
   )
 })

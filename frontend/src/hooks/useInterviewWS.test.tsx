@@ -130,6 +130,41 @@ describe('useInterviewWS', () => {
     expect(state.qaPairs[1].answer).toContain('part')
   })
 
+  it('stores screenshot images from answer_start and restores them from init snapshot', () => {
+    render(<Harness />)
+    const ws = FakeWebSocket.instances[0]
+    act(() => {
+      ws.emitOpen()
+      ws.emitMessage({
+        type: 'init',
+        qa_pairs: [{
+          id: 'qa-old',
+          question: '截图审题',
+          answer: '旧答案',
+          timestamp: 1,
+          images: ['data:image/png;base64,old'],
+        }],
+      })
+      ws.emitMessage({
+        type: 'answer_start',
+        id: 'qa-new',
+        question: '截图审题',
+        images: ['data:image/png;base64,new1', 'data:image/png;base64,new2'],
+      })
+      ws.emitMessage({
+        type: 'answer_done',
+        id: 'qa-new',
+        question: '截图审题',
+        answer: '答案',
+        images: ['data:image/png;base64,new1', 'data:image/png;base64,new2'],
+      })
+    })
+
+    const state = useInterviewStore.getState()
+    expect(state.qaPairs[0].images).toEqual(['data:image/png;base64,old'])
+    expect(state.qaPairs[1].images).toEqual(['data:image/png;base64,new1', 'data:image/png;base64,new2'])
+  })
+
   it('maps transcription_interim into interimTranscription and clears on empty text', () => {
     render(<Harness />)
     const ws = FakeWebSocket.instances[0]

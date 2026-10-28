@@ -1936,9 +1936,14 @@ def test_process_question_parallel_sends_multiple_images_to_vision_model(
         "data:image/png;base64,b",
     ]
     done = next(event for event in broadcasts if event["type"] == "answer_done")
-    assert "多图 x2" in done["question"]
+    # 截图题题面是给 LLM 的提示词，展示层用短标签，图片本体随事件下发供 app 内回看
+    assert done["question"] == "截图审题（连续 2 张）"
+    assert done["images"] == ["data:image/png;base64,a", "data:image/png;base64,b"]
+    start = next(event for event in broadcasts if event["type"] == "answer_start")
+    assert start["images"] == ["data:image/png;base64,a", "data:image/png;base64,b"]
     assert "image_url" not in str(get_session().conversation_history)
     assert get_session().conversation_history[0]["content"] == "多图题面 [图片已省略 x2]"
+    assert get_session().qa_pairs[-1].images == ["data:image/png;base64,a", "data:image/png;base64,b"]
 
 
 def test_process_question_parallel_passes_all_images_to_self_verify(
