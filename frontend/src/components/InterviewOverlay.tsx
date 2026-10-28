@@ -82,6 +82,29 @@ export default function InterviewOverlay() {
     }
   }, [setConfig])
 
+  // 笔试隐身时悬浮窗默认鼠标穿透（点击落到考试窗口不抢焦点）。光标进入面板本体即
+  // 通知主进程临时放行点击，离开再恢复穿透——让拖动/按钮/滚动与"不抢焦点"兼得。
+  // 悬浮窗是非激活 panel，点击它不会让考试窗口失去 key 焦点。
+  const stealthActive = isExamMode && isRecording
+  const overlayInteractiveRef = useRef(false)
+  const setOverlayInteractive = useCallback((interactive: boolean) => {
+    if (!window.electronAPI?.setOverlayInteractive) return
+    if (overlayInteractiveRef.current === interactive) return
+    overlayInteractiveRef.current = interactive
+    window.electronAPI.setOverlayInteractive(interactive).catch(() => {})
+  }, [])
+  // 隐身状态结束（或面板隐藏）时，确保把临时放行复位，避免残留的可交互态。
+  useEffect(() => {
+    if (!stealthActive) setOverlayInteractive(false)
+    return () => setOverlayInteractive(false)
+  }, [stealthActive, setOverlayInteractive])
+  const handleShellEnter = useCallback(() => {
+    if (stealthActive) setOverlayInteractive(true)
+  }, [stealthActive, setOverlayInteractive])
+  const handleShellLeave = useCallback(() => {
+    setOverlayInteractive(false)
+  }, [setOverlayInteractive])
+
   const latestQa = useMemo(() => {
     if (streamingIds.length > 0) {
       const currentId = streamingIds[streamingIds.length - 1]
@@ -407,7 +430,13 @@ export default function InterviewOverlay() {
   if (overlayMode === 'focus') {
     return (
       <div className="ov-root ov-root--focus">
-        <div className={shellClass} style={focusShellStyle} onMouseDown={suppressMouseSelection}>
+        <div
+          className={shellClass}
+          style={focusShellStyle}
+          onMouseDown={suppressMouseSelection}
+          onMouseEnter={handleShellEnter}
+          onMouseLeave={handleShellLeave}
+        >
           <div className="ov-grip" aria-hidden />
           <div className="ov-focus-toolbar" aria-label="专注面板工具">
             {focusTools.map((tool) => (
@@ -503,7 +532,12 @@ export default function InterviewOverlay() {
     <div
       className={`ov-root ${overlayMode === 'prompt' ? 'ov-root--prompt' : ''}`}
     >
-      <div className={shellClass} style={overlayMode === 'prompt' ? promptShellStyle : { opacity, color: fontColor }}>
+      <div
+        className={shellClass}
+        style={overlayMode === 'prompt' ? promptShellStyle : { opacity, color: fontColor }}
+        onMouseEnter={handleShellEnter}
+        onMouseLeave={handleShellLeave}
+      >
         <div className="ov-grip" aria-hidden />
 
         <div

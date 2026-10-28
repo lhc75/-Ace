@@ -53,6 +53,7 @@ const {
   getWindowsStartupSwitches,
   keepWindowInFront,
   relayChildOutput,
+  shouldOverlayPassthrough,
   stopFrontReassert,
 } = require('./windowOptions');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
@@ -123,8 +124,13 @@ let mainWindow = null;
 let overlayWindow = null;
 let tray = null;
 // 笔试隐身模式（前端在 笔试模式+录制中 时通过 sync-stealth-mode 同步）：
-// 隐藏托盘图标、悬浮窗鼠标穿透，结束笔试恢复。
+// 隐藏托盘图标、悬浮窗默认鼠标穿透，结束笔试恢复。
 let stealthModeActive = false;
+// 隐身期间悬浮窗是否临时可交互：悬浮窗渲染进程检测到光标进入面板时置 true
+// （放行点击/滚动/拖动到面板本身），光标离开置 false（点击重新穿透到考试窗口）。
+// 悬浮窗是 focusable:false 的非激活 panel，点击它不会让考试窗口失去 key 焦点，
+// 所以“可交互”与“不抢焦点”可以同时成立。
+let overlayInteractiveHover = false;
 let pythonProcess = null;
 let isQuitting = false;
 let shortcuts = {};
@@ -498,8 +504,8 @@ function createOverlayWindow() {
   overlayWindow.setBackgroundColor('#00000000');
   overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
   if (stealthModeActive) {
-    // 笔试隐身期间新建的悬浮窗同样鼠标穿透
-    overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    // 笔试隐身期间新建的悬浮窗同样默认鼠标穿透（光标进入面板时再临时放行）
+    applyOverlayMousePassthrough();
   }
   if (process.platform === 'darwin') {
     // macOS: NSWindowCollectionBehaviorCanJoinAllSpaces + Transient
@@ -1113,24 +1119,36 @@ function createTray() {
   tray.on('double-click', () => { mainWindow?.show(); mainWindow?.focus(); });
 }
 
+// 悬浮窗的鼠标穿透由两个状态合成：
+// - 隐身开启时默认穿透（点击落到下方考试窗口，不抢焦点、不触发失焦检测）；
+// - 但光标进入面板本体时临时放行（overlayInteractiveHover=true），让拖动/按钮/
+//   滚动在面板上照常可用。forward:true 保证穿透期间 move 事件仍送到渲染进程，
+//   渲染进程才能在光标进入/离开时翻转 overlayInteractiveHover。
+// 非隐身时永远可交互。
+function applyOverlayMousePassthrough() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  const passthrough = shouldOverlayPassthrough(stealthModeActive, overlayInteractiveHover);
+  overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
+}
+
 // 笔试隐身模式（前端在 笔试模式+录制中 时同步）：
 // 1) 销毁菜单栏/系统托盘图标——全屏考试时菜单栏不再暴露本软件；
-// 2) 悬浮窗鼠标穿透——点击落到下方考试窗口，不抢焦点、不触发失焦检测。
-// 结束笔试即恢复：重建托盘、悬浮窗恢复可交互。
-// 隐身期间悬浮窗的拖动/按钮/滚动都不可用，全部操作走全局快捷键。
+// 2) 悬浮窗默认鼠标穿透——空白处点击落到下方考试窗口，不抢焦点、不触发失焦检测；
+//    光标移到面板上时临时放行点击（见 applyOverlayMousePassthrough），拖动/按钮/
+//    滚动照常可用，且因悬浮窗是非激活 panel，点击它不会让考试窗口失去焦点。
+// 结束笔试即恢复：重建托盘、悬浮窗恢复常规可交互。
 function applyStealthMode(active) {
   const next = Boolean(active);
   if (next === stealthModeActive) return;
   stealthModeActive = next;
+  overlayInteractiveHover = false; // 进/出隐身都从“默认穿透”重新开始
   if (next && tray) {
     tray.destroy();
     tray = null;
   } else if (!next && !tray) {
     createTray();
   }
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.setIgnoreMouseEvents(next, { forward: true });
-  }
+  applyOverlayMousePassthrough();
 }
 
 function isFocusOverlayActive() {
@@ -1412,6 +1430,14 @@ ipcMain.handle('reset-shortcuts', () => {
 ipcMain.handle('sync-stealth-mode', (_event, payload = {}) => {
   applyStealthMode(Boolean(payload?.active));
   return { ok: true, active: stealthModeActive };
+});
+
+// 隐身期间悬浮窗渲染进程上报光标是否在面板上：在面板上则临时放行点击，
+// 离开则恢复穿透。非隐身时该标志不影响（applyOverlayMousePassthrough 只在隐身时穿透）。
+ipcMain.handle('set-overlay-interactive', (_event, payload = {}) => {
+  overlayInteractiveHover = Boolean(payload?.interactive);
+  applyOverlayMousePassthrough();
+  return { ok: true, interactive: overlayInteractiveHover };
 });
 
 ipcMain.handle('sync-overlay-window', (_event, payload = {}) => {

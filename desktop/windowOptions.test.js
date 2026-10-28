@@ -11,8 +11,21 @@ const {
   getPromptOverlayInitialWidth,
   getWindowsStartupSwitches,
   relayChildOutput,
+  shouldOverlayPassthrough,
   writeToStreamSafely,
 } = require('./windowOptions');
+
+test('overlay stays interactive when stealth is off, regardless of hover', () => {
+  assert.equal(shouldOverlayPassthrough(false, false), false);
+  assert.equal(shouldOverlayPassthrough(false, true), false);
+});
+
+test('stealth overlay passes clicks through only while the cursor is off the panel', () => {
+  // 光标不在面板上：穿透，点击落到考试窗口，不抢焦点
+  assert.equal(shouldOverlayPassthrough(true, false), true);
+  // 光标在面板上：放行点击，拖动/按钮/滚动可用（兼得的核心）
+  assert.equal(shouldOverlayPassthrough(true, true), false);
+});
 
 test('Windows overlay disables the native thick frame that can expose a white title strip', () => {
   const options = createOverlayChromeOptions('win32', true);

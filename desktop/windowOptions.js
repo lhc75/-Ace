@@ -167,10 +167,18 @@ function relayChildOutput(childStream, targetStream, prefix = '') {
   };
 }
 
+// 笔试隐身时悬浮窗是否应鼠标穿透：隐身开启且光标不在面板上时穿透（点击落到
+// 下方考试窗口，不抢焦点）；光标进入面板本体则放行点击（拖动/按钮/滚动可用）；
+// 非隐身永远可交互。这个纯布尔是“可交互”与“不抢焦点”兼得的核心判定。
+function shouldOverlayPassthrough(stealthActive, interactiveHover) {
+  return Boolean(stealthActive) && !interactiveHover;
+}
+
 module.exports = {
   PROMPT_OVERLAY_DEFAULT_WIDTH,
   PROMPT_OVERLAY_MAX_WIDTH,
   applyOverlayWorkspacePolicy,
+  shouldOverlayPassthrough,
   applyTopMost,
   consumePendingOverlayShow,
   createOverlayChromeOptions,
