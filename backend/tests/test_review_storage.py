@@ -480,6 +480,39 @@ def test_delete_all_sessions_is_blocked_while_any_session_active(status):
     assert review.list_sessions()["total"] == 2
 
 
+@pytest.mark.parametrize("status", ["recording", "analyzing"])
+def test_delete_all_sessions_force_wipes_active_sessions(status):
+    """force=True（清空端点先停录制/取消分析后调用）跳过进行中守卫，全部清空。"""
+    done_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.end_session(done_id, status="completed")
+    busy_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.add_turn(
+        session_id=busy_id,
+        qa_id="qa-busy",
+        seq=1,
+        question_text="进行中的问题",
+        candidate_answer_text="进行中的回答",
+    )
+    review.end_session(busy_id, status=status)
+
+    assert review.delete_all_sessions(force=True) == 2
+    assert review.list_sessions()["total"] == 0
+
+    conn = review._conn()
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM review_turns").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
 def test_update_turn_analysis_preserves_original_answer_when_corrected():
     session_id = review.create_session(
         started_at=time.time(),

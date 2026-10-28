@@ -398,17 +398,19 @@ def discard_empty_session(session_id: int) -> bool:
     return True
 
 
-def delete_all_sessions() -> int:
+def delete_all_sessions(force: bool = False) -> int:
     """Delete every review session and its turns. Returns the deleted count.
 
     Refuses (ReviewSessionBusyError) while any session is recording or
-    analyzing, so a wipe can never kill in-flight work.
+    analyzing, so a wipe can never kill in-flight work. Callers that have
+    already stopped recording and cancelled in-flight analyses themselves
+    (the clear-all endpoint) pass force=True to skip that guard.
     """
     with _db() as conn:
         busy = conn.execute(
             "SELECT COUNT(*) AS c FROM review_sessions WHERE status IN ('recording', 'analyzing')",
         ).fetchone()["c"]
-        if busy:
+        if busy and not force:
             raise ReviewSessionBusyError("有正在录制或分析中的复盘，请先完成或停止后再一键清空")
         rows = conn.execute(
             "SELECT id, application_id FROM review_sessions",

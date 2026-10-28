@@ -260,11 +260,15 @@ export default function ReviewSessionList({ onViewDetail }: Props) {
   const handleDeleteAllSessions = async () => {
     const totalCount = data?.total ?? 0
     if (clearingAll || totalCount === 0) return
-    if (!window.confirm(`确定删除全部 ${totalCount} 场复盘吗？删除后不可恢复。`)) return
+    if (!window.confirm(`确定删除全部 ${totalCount} 场复盘吗？进行中的录制和分析会被停止，删除后不可恢复。`)) return
     setClearingAll(true)
     try {
       const result = await api.reviewDeleteAllSessions()
-      setToastMessage(`已清空 ${result.deleted} 场复盘`)
+      setToastMessage(
+        result.stopped_recording
+          ? `已停止进行中的录制，并清空 ${result.deleted} 场复盘`
+          : `已清空 ${result.deleted} 场复盘`
+      )
       setPage(1)
       await loadSessions(1)
     } catch (err) {

@@ -331,7 +331,7 @@ export const api = {
   reviewDeleteSession: (sessionId: number) =>
     request<{ success: boolean }>(`/api/review/sessions/${sessionId}`, { method: 'DELETE' }),
   reviewDeleteAllSessions: () =>
-    request<{ success: boolean; deleted: number }>('/api/review/sessions', { method: 'DELETE' }),
+    request<{ success: boolean; deleted: number; stopped_recording?: boolean; cancelled_analyses?: number }>('/api/review/sessions', { method: 'DELETE' }),
   reviewDeleteTurn: (sessionId: number, turnId: number) =>
     request<{ success: boolean }>(`/api/review/sessions/${sessionId}/turns/${turnId}`, { method: 'DELETE' }),
   reviewUpdateSession: (sessionId: number, data: { title?: string; company?: string; role?: string; application_id?: number | null }) =>

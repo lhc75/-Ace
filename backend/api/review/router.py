@@ -154,12 +154,30 @@ async def delete_turn(session_id: int, turn_id: int):
 
 @router.delete("/review/sessions")
 async def delete_all_sessions():
-    """一键清空全部复盘(录制中/分析中的复盘存在时拒绝)。"""
+    """一键清空全部复盘：有录制/分析进行中时先停止再清空，不再拒绝。
+
+    录制中的复盘：走与停止按钮相同的 stop_interview_loop（落盘当前问答后整场
+    也会被下面的清库删掉）；分析中的复盘：打取消标记，worker 在下一次写库前
+    自检退出，对已删除行的兜底 UPDATE 是 no-op。
+    """
     try:
-        deleted = review.delete_all_sessions()
-        return {"success": True, "deleted": deleted}
-    except review.ReviewSessionBusyError as exc:
-        raise HTTPException(400, str(exc))
+        from core.session import get_session
+
+        stopped_recording = False
+        if get_session().is_recording:
+            # 延迟导入避免 api.assist.pipeline 与 review 路由的加载顺序耦合
+            from api.assist.pipeline import stop_interview_loop
+
+            await run_in_threadpool(stop_interview_loop)
+            stopped_recording = True
+        cancelled_analyses = review_async_analysis.cancel_all_analyses()
+        deleted = review.delete_all_sessions(force=True)
+        return {
+            "success": True,
+            "deleted": deleted,
+            "stopped_recording": stopped_recording,
+            "cancelled_analyses": cancelled_analyses,
+        }
     except Exception as exc:
         raise HTTPException(500, str(exc))
 

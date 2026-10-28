@@ -127,3 +127,34 @@ def test_turn_without_candidate_submission_skips_backfill(mocked_analysis, monke
     update_score.assert_not_called()
     save_record.assert_not_called()
 
+
+
+def test_cancelled_analysis_exits_without_writes(mocked_analysis):
+    """被取消的分析（一键清空）不写 turn/总结/状态——行已被清库删除。"""
+    analyze_turn, summary, update_turn, update_summary, update_status = mocked_analysis
+    with analysis._in_flight_lock:
+        analysis._cancelled.add(1)
+    try:
+        analysis._analyze_session_worker(1)
+    finally:
+        with analysis._in_flight_lock:
+            analysis._cancelled.discard(1)
+
+    analyze_turn.assert_not_called()
+    update_turn.assert_not_called()
+    summary.assert_not_called()
+    update_summary.assert_not_called()
+    update_status.assert_not_called()
+
+
+def test_cancel_all_marks_in_flight_and_new_start_clears_mark():
+    with analysis._in_flight_lock:
+        analysis._in_flight.add(7)
+    try:
+        assert analysis.cancel_all_analyses() == 1
+        assert analysis.is_cancelled(7)
+    finally:
+        with analysis._in_flight_lock:
+            analysis._in_flight.discard(7)
+            analysis._cancelled.discard(7)
+    assert not analysis.is_cancelled(7)

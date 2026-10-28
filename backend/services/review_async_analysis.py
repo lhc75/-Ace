@@ -39,6 +39,24 @@ def _score_values(scorecard: Any) -> list[float]:
 # 不能各起一个线程同时写同一场的 turns/summary
 _in_flight: set[int] = set()
 _in_flight_lock = threading.Lock()
+# 被一键清空取消的分析: worker 在下一题/写总结前自检退出，不再向已删除的行回写
+_cancelled: set[int] = set()
+
+
+def cancel_all_analyses() -> int:
+    """取消所有在途分析（一键清空复盘前调用）。返回标记取消的数量。
+
+    只打标记、不 join 线程：worker 在下一次写库前自检退出；清库后它对已删除
+    行的兜底 UPDATE 也是 no-op。
+    """
+    with _in_flight_lock:
+        _cancelled.update(_in_flight)
+        return len(_in_flight)
+
+
+def is_cancelled(session_id: int) -> bool:
+    with _in_flight_lock:
+        return session_id in _cancelled
 
 
 def analyze_session_async(session_id: int) -> bool:
@@ -51,6 +69,7 @@ def analyze_session_async(session_id: int) -> bool:
             logger.info("Analysis already in flight for session_id=%d, skip", session_id)
             return False
         _in_flight.add(session_id)
+        _cancelled.discard(session_id)
     review.update_session_status(session_id, "analyzing")
     thread = threading.Thread(
         target=_analyze_session_worker,
@@ -74,6 +93,7 @@ def _analyze_session_worker(session_id: int):
     finally:
         with _in_flight_lock:
             _in_flight.discard(session_id)
+            _cancelled.discard(session_id)
 
 
 def _analyze_session_inner(session_id: int):
@@ -104,6 +124,9 @@ def _analyze_session_inner(session_id: int):
         analyzed_turns = []
         analysis_failed = False
         for turn in turns:
+            if is_cancelled(session_id):
+                logger.info("Analysis cancelled before turn: session_id=%d, turn_id=%d", session_id, turn["id"])
+                return
             if turn["is_partial"]:
                 logger.info("Skip partial turn: session_id=%d, turn_id=%d", session_id, turn["id"])
                 continue
@@ -118,6 +141,11 @@ def _analyze_session_inner(session_id: int):
                 )
                 if result.get("error"):
                     raise RuntimeError(result["error"])
+
+                if is_cancelled(session_id):
+                    # 清库发生在 LLM 调用期间：结果直接丢弃，不回写已删除的行
+                    logger.info("Analysis cancelled after turn LLM call: session_id=%d, turn_id=%d", session_id, turn["id"])
+                    return
 
                 # 更新 turn（包括纠正后的候选人回答）
                 review.update_turn_analysis(
@@ -181,6 +209,10 @@ def _analyze_session_inner(session_id: int):
                     turn_id=turn["id"],
                     analysis_status="failed",
                 )
+
+        if is_cancelled(session_id):
+            logger.info("Analysis cancelled before summary: session_id=%d", session_id)
+            return
 
         try:
             summary_result = review_analysis.generate_summary(

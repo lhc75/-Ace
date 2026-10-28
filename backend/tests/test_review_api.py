@@ -444,6 +444,58 @@ def test_delete_review_endpoints_reject_active_sessions(status):
     assert "不能删除" in turn_response.json()["detail"]
 
 
+@pytest.mark.parametrize("status", ["recording", "analyzing"])
+def test_delete_all_sessions_clears_active_sessions(status):
+    """一键清空不再被进行中复盘拒绝：端点先停录制/取消分析，再 force 清库。"""
+    done_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.end_session(done_id, status="completed")
+    busy_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    review.end_session(busy_id, status=status)
+
+    response = client.delete("/api/review/sessions")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["deleted"] == 2
+    assert body["stopped_recording"] is False
+    assert review.list_sessions()["total"] == 0
+
+
+def test_delete_all_sessions_stops_live_recording_first(monkeypatch):
+    """assist 正在录音时，一键清空先走 stop_interview_loop（同停止按钮）再清库。"""
+    from unittest.mock import Mock
+
+    from core.session import get_session
+
+    session_id = review.create_session(
+        started_at=time.time(),
+        interviewer_enabled=True,
+        candidate_enabled=True,
+    )
+    stop_mock = Mock()
+    monkeypatch.setattr("api.assist.pipeline.stop_interview_loop", stop_mock)
+    session = get_session()
+    session.is_recording = True
+    try:
+        response = client.delete("/api/review/sessions")
+    finally:
+        session.is_recording = False
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stopped_recording"] is True
+    stop_mock.assert_called_once()
+    assert review.get_session_detail(session_id) is None
+
+
 def test_get_session_detail_not_found():
     """测试获取不存在的 session"""
     resp = client.get("/api/review/sessions/99999")
