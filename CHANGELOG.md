@@ -1,5 +1,16 @@
 # 修复日志
 
+## 2026-10-29 - macOS 点击悬浮窗顶部不再让考试窗口失活 v1.3.16
+
+### 修复
+- macOS 上点击悬浮窗顶部约 28px 区域时，下方考试窗口会失活（左上角红黄绿三个按钮变灰）。根因：无边框窗口设了 `roundedCorners: true` 会保留 `NSWindowStyleMaskTitled`，顶部留着一条看不见的原生标题栏，点击由窗口边框处理并让下方应用失活，`focusable:false` 拦不住。
+- 现 macOS 悬浮窗改为 `roundedCorners: false`，成为真正的无边框 panel；圆角外观仍由 CSS（`.ov-shell` 的 `border-radius`）绘制。光标在面板上时放行点击的逻辑不变，按钮、滚动、拖动照常可用。
+
+### 测试
+- `windowOptions.test.js` 新增 macOS 无边框断言，19 个测试通过。
+
+---
+
 ## 2026-10-29 - 笔试隐身悬浮窗"可交互"与"不抢焦点"兼得 v1.3.15
 
 ### 行为变化
