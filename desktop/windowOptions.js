@@ -9,6 +9,13 @@ function createOverlayChromeOptions(platform, preferredResizable) {
     // macOS panels are explicitly allowed to float above fullscreen apps and
     // are visible across Spaces.
     ...(platform === 'darwin' ? { type: 'panel' } : {}),
+    // macOS: a frameless window with roundedCorners keeps NSWindowStyleMaskTitled,
+    // so an invisible native title bar still covers the top ~28px. Clicking it is
+    // handled by the window frame (drag tracking / ordering) and deactivates the
+    // app underneath (its traffic lights turn grey) even though the panel cannot
+    // become key. roundedCorners:false makes the panel truly borderless; the
+    // visible rounded corners come from CSS (.ov-shell border-radius).
+    ...(platform === 'darwin' ? { roundedCorners: false } : {}),
     // Windows transparent frameless windows can expose the native thick frame as
     // a white title strip. Removing it also removes native edge resizing there.
     resizable: isWindows ? false : Boolean(preferredResizable),

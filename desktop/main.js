@@ -491,7 +491,6 @@ function createOverlayWindow() {
     hiddenInMissionControl: true,
     show: false,
     autoHideMenuBar: true,
-    roundedCorners: true,
     title: `${APP_DISPLAY_NAME} Overlay`,
     webPreferences: createWindowWebPreferences(process.platform, path.join(__dirname, 'preload.js'), {
       backgroundThrottling: false,

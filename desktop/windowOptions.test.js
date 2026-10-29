@@ -46,6 +46,11 @@ test('non-Windows overlay keeps the existing native resize behavior', () => {
   assert.equal(options.resizable, true);
 });
 
+test('macOS overlay is borderless so its top edge has no hidden title bar that deactivates the app below', () => {
+  assert.equal(createOverlayChromeOptions('darwin', true).roundedCorners, false);
+  assert.equal(createOverlayChromeOptions('win32', true).roundedCorners, undefined);
+});
+
 test('Windows startup enables in-process GPU so security software cannot kill a separate GPU child process', () => {
   assert.deepEqual(getWindowsStartupSwitches({}), ['in-process-gpu']);
   assert.deepEqual(getWindowsStartupSwitches(), ['in-process-gpu']);
