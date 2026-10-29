@@ -542,6 +542,35 @@ def is_asr_question_constraint_tail(text: str) -> bool:
     return bool(_QUESTION_CONSTRAINT_TAIL.search(normalized))
 
 
+# 面试官换气停顿时，流式 ASR 会把半句话定稿成一句（"咱们结合这。""就是我看里面写到了有一个在那个。"）。
+# 这类句子以连接词、指代词、量词、介词等"话还没说完"的词结尾；即使句中带"聊一下"之类
+# 疑问线索，也必须等下文。不含"的/是/在"：它们太常作为完整问句的结尾（"……是怎么样的"）。
+_DANGLING_TAIL = re.compile(
+    r"(?:就是说?|也就是|那个|这个|那种|这种|那些|这些|这样|那样|那么|一个|"
+    # "做了一些" 没说完，"偏多一些/好一些" 是完整的比较句
+    r"(?<![多少好快慢大小高低早晚])一些|"
+    r"然后|还有|以及|或者|还是|但是|不过|因为|所以|而且|并且|如果|比如说?|例如|包括|"
+    r"首先|其次|关于|对于|整个|你觉得|觉得|说是|的话|"
+    r"和|跟|与|及|把|将|给|从|向|让|被|这|那)$"
+)
+_DANGLING_TRAILING_PARTICLE = re.compile(r"(?:[啊呀哈呃额嗯]+)$")
+
+
+def is_dangling_asr_utterance(text: str) -> bool:
+    """定稿是否停在半句上（面试官只是换气，下文马上会来）。
+
+    ASR 在结尾打了问号的视为完整问句，不算半句。
+    """
+    raw = (text or "").strip()
+    if not raw or raw.endswith(("?", "？")):
+        return False
+    normalized = normalize_transcription_for_analysis(raw)
+    normalized = _DANGLING_TRAILING_PARTICLE.sub("", normalized).rstrip(" ,，。.!！;；:：、")
+    if not normalized:
+        return False
+    return bool(_DANGLING_TAIL.search(normalized))
+
+
 def is_viable_asr_question_group(
     texts: list[str],
     min_significant_chars: int = 4,

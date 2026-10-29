@@ -228,6 +228,12 @@ class AppConfig(BaseModel):
     # 千问流式即时派发：sentence_end 定稿后立刻把该句作为问题提交答题模型，跳过静默门控与确认窗口
     # （面试官的问题视为一口气问完）。关闭则回到短窗口 + 静默门控行为。仅千问流式生效。
     assist_stream_asr_instant_dispatch: bool = True
+    # 即时派发的分级等待：完整问句仍立刻发；定稿停在半句（"就是那个。"）或定稿后面试官又开口时，
+    # 等下文并入，静默满 dangling_wait 秒仍无下文才发；无疑问线索的陈述句静默满 ambiguous_wait 秒再发；
+    # 任何挂起距最后定稿超过 hold_max 秒都强制发出。
+    assist_stream_asr_dangling_wait_sec: float = 2.0
+    assist_stream_asr_ambiguous_wait_sec: float = 0.8
+    assist_stream_asr_hold_max_sec: float = 30.0
     # 实时辅助：确认新问句组后是否中断仍在生成的旧 ASR 回答
     assist_asr_interrupt_running: bool = True
     # 实时辅助：高 churn 场景下自动切短答，优先跟住最新问题
@@ -368,6 +374,9 @@ class AppConfig(BaseModel):
         self.assist_stream_asr_candidate_wait_sec = max(0.3, min(5.0, float(self.assist_stream_asr_candidate_wait_sec if self.assist_stream_asr_candidate_wait_sec is not None else 1.5)))
         self.assist_stream_asr_dispatch_grace_sec = max(0.0, min(3.0, float(self.assist_stream_asr_dispatch_grace_sec if self.assist_stream_asr_dispatch_grace_sec is not None else 0.5)))
         self.assist_stream_asr_silence_flush_sec = max(0.3, min(3.0, float(self.assist_stream_asr_silence_flush_sec if self.assist_stream_asr_silence_flush_sec is not None else 1.2)))
+        self.assist_stream_asr_dangling_wait_sec = max(0.5, min(6.0, float(self.assist_stream_asr_dangling_wait_sec if self.assist_stream_asr_dangling_wait_sec is not None else 2.0)))
+        self.assist_stream_asr_ambiguous_wait_sec = max(0.1, min(3.0, float(self.assist_stream_asr_ambiguous_wait_sec if self.assist_stream_asr_ambiguous_wait_sec is not None else 0.8)))
+        self.assist_stream_asr_hold_max_sec = max(5.0, min(60.0, float(self.assist_stream_asr_hold_max_sec if self.assist_stream_asr_hold_max_sec is not None else 30.0)))
         self.assist_stream_reconnect_buffer_sec = max(
             0.0,
             min(120.0, float(

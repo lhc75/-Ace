@@ -94,8 +94,14 @@
   "assist_stream_asr_dispatch_grace_sec": 0.5,
   // 流式模式：最后一段语音静默满该秒数才派发答题（防止句中停顿把一题拆成两题）
   "assist_stream_asr_silence_flush_sec": 1.2,
-  // 千问流式即时派发：定稿即发（关闭则回到静默门控+短窗口）
+  // 千问流式即时派发：完整问句定稿即发（关闭则回到静默门控+短窗口）
   "assist_stream_asr_instant_dispatch": true,
+  // 即时派发下定稿停在半句（"就是""那个""咱们结合这"）或定稿后面试官又开口：静默满该秒数仍无下文才发
+  "assist_stream_asr_dangling_wait_sec": 2.0,
+  // 即时派发下无疑问线索的陈述句：静默满该秒数且面试官没再开口才发
+  "assist_stream_asr_ambiguous_wait_sec": 0.8,
+  // 即时派发下问题组距最后定稿的最长挂起秒数，超时强制发出
+  "assist_stream_asr_hold_max_sec": 30.0,
   "candidate_mic_compatibility_mode": true,
 
   // ==================== 面试基础信息 ====================

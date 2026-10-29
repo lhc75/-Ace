@@ -10,6 +10,7 @@ from services.stt import (
     build_asr_question_group_text,
     classify_asr_question_candidate,
     is_asr_question_constraint_tail,
+    is_dangling_asr_utterance,
     is_viable_asr_question_group,
     join_transcription_fragments,
     transcription_for_publish,
@@ -24,6 +25,11 @@ class PendingASRGroup:
     first_mono: float = 0.0
     last_mono: float = 0.0
     has_promote: bool = False
+    # 最后一句定稿的分类与是否停在半句上：即时派发据此决定立刻发、稍等还是挂起等下文
+    tail_kind: str = "candidate"
+    tail_dangling: bool = False
+    # 组内各句对应的转写行 id；半句与下文拼接后句数会少于转写行数，不能再按句数从尾部截取
+    transcription_ids: list[str] = field(default_factory=list)
 
 
 class AssistAsrStateMachine:
@@ -59,6 +65,11 @@ class AssistAsrStateMachine:
         self.merge_mono_first: Optional[float] = None
         self.merge_mono_last: Optional[float] = None
         self.pending_group: Optional[PendingASRGroup] = None
+        # 最近一次收到非空流式中间结果的时刻：晚于挂起组最后定稿，说明面试官又开口了
+        self.last_interim_mono: Optional[float] = None
+
+    def note_stream_interim(self, now_mono: float) -> None:
+        self.last_interim_mono = now_mono
 
     def reset_merge_buffer(self):
         self.merge_parts = []
@@ -99,7 +110,7 @@ class AssistAsrStateMachine:
                 group.source,
                 {
                     "origin": "asr",
-                    "source_transcription_ids": [
+                    "source_transcription_ids": list(group.transcription_ids) or [
                         item.id for item in session.transcription_history[-len(group.utterances):]
                         if hasattr(item, "id")
                     ],
@@ -117,6 +128,10 @@ class AssistAsrStateMachine:
         if group is None:
             return
         instant = _stream_instant(cfg, self.stream_mode)
+        if instant and not force:
+            if self._instant_group_ready(cfg, group, now_mono):
+                self.flush_question_group_now(cfg, session)
+            return
         # VAD and the confirmation worker run independently. If VAD has
         # already started collecting the next speech burst, wait for that
         # burst to finish instead of answering only its first segment.
@@ -164,7 +179,44 @@ class AssistAsrStateMachine:
             # fragment would cut a continued sentence in the middle.
             self.flush_question_group_now(cfg, session)
 
-    def handle_auto_detect_asr_text(self, cfg, session, pub: str, source: str, now_mono: float) -> None:
+    def _instant_group_ready(self, cfg, group: PendingASRGroup, now_mono: float) -> bool:
+        """即时派发下挂起组是否该发出。
+
+        - 完整问句（promote 且不停在半句）：沿用最短确认窗口，基本即发；
+        - 停在半句，或定稿后面试官又开口（收到新的中间结果）：等下文定稿并入，
+          静默满 dangling_wait 仍无下文才按现有文本发出；
+        - 无疑问线索的陈述句：静默满 ambiguous_wait 且没再开口才发。
+        无论哪种，距最后定稿超过 hold_max 都强制发出，防止噪声中间结果让问题一直挂着。
+        """
+        since_final = now_mono - group.last_mono
+        if since_final >= _stream_hold_max_sec(cfg):
+            return True
+        interim = self.last_interim_mono
+        resumed = interim is not None and interim > group.last_mono
+        idle = now_mono - (interim if resumed else group.last_mono)
+        if group.tail_dangling or resumed:
+            return idle >= _stream_dangling_wait_sec(cfg)
+        if group.tail_kind == "promote":
+            return since_final >= _asr_fast_confirm_sec(cfg, True)
+        return idle >= _stream_ambiguous_wait_sec(cfg)
+
+    def dispatch_stream_final(self, cfg, session) -> None:
+        """流式定稿刚并入问题组时调用：只有完整问句当场派发，其余交给 flush tick 判定。"""
+        group = self.pending_group
+        if group is None:
+            return
+        if group.tail_kind == "promote" and not group.tail_dangling:
+            self.flush_question_group_now(cfg, session)
+
+    def handle_auto_detect_asr_text(
+        self,
+        cfg,
+        session,
+        pub: str,
+        source: str,
+        now_mono: float,
+        transcription_id: Optional[str] = None,
+    ) -> None:
         kind, cleaned = classify_asr_question_candidate(
             pub,
             getattr(cfg, "transcription_min_sig_chars", 2),
@@ -194,6 +246,8 @@ class AssistAsrStateMachine:
         self.try_flush_question_group(cfg, session, now_mono, False)
         if kind == "ignore" and self.pending_group is None:
             return
+        instant = _stream_instant(cfg, self.stream_mode)
+        dangling = is_dangling_asr_utterance(pub)
         if self.pending_group is None:
             self.pending_group = PendingASRGroup(
                 source=source,
@@ -206,14 +260,27 @@ class AssistAsrStateMachine:
                 # must not submit it as quickly as an explicit, completed
                 # question.
                 has_promote=(kind == "promote"),
+                tail_kind=kind,
+                tail_dangling=dangling,
+                transcription_ids=[transcription_id] if transcription_id else [],
             )
+        elif instant and kind == "ignore":
+            # 挂起期间的“嗯/好的/hmm”不是下文：不并入、也不改变组的尾巴。
+            return
         else:
-            self.pending_group.utterances.append(cleaned)
-            self.pending_group.last_mono = now_mono
-            self.pending_group.source = source
-            self.pending_group.has_promote = (
-                self.pending_group.has_promote or kind == "promote"
-            )
+            group = self.pending_group
+            if instant and group.tail_dangling:
+                # 上一句停在半句上，这句是它的后半截：拼回同一句，而不是当成“连续追问”。
+                group.utterances[-1] = join_transcription_fragments([group.utterances[-1], cleaned])
+            else:
+                group.utterances.append(cleaned)
+            group.last_mono = now_mono
+            group.source = source
+            group.has_promote = group.has_promote or kind == "promote"
+            group.tail_kind = kind
+            group.tail_dangling = dangling
+            if transcription_id:
+                group.transcription_ids.append(transcription_id)
 
     def _publish_and_detect(self, cfg, session, pub: str, now_mono: float) -> None:
         """发布一条转写到前端，并在 auto_detect 开启时送入问题检测。"""
@@ -225,7 +292,10 @@ class AssistAsrStateMachine:
                 if session.capture_is_loopback
                 else "conversation_mic"
             )
-            self.handle_auto_detect_asr_text(cfg, session, pub, source, now_mono)
+            self.handle_auto_detect_asr_text(
+                cfg, session, pub, source, now_mono,
+                transcription_id=getattr(entry, "id", None),
+            )
 
     def flush_merge_buffer_now(self, cfg, session) -> None:
         if not self.merge_parts:
@@ -350,6 +420,21 @@ def _asr_dispatch_grace_sec(cfg, stream_mode: bool = False) -> float:
 def _asr_stream_silence_flush_sec(cfg) -> float:
     gate = float(getattr(cfg, "assist_stream_asr_silence_flush_sec", 1.2) or 0.0)
     return max(0.3, min(3.0, gate))
+
+
+def _stream_dangling_wait_sec(cfg) -> float:
+    wait = float(getattr(cfg, "assist_stream_asr_dangling_wait_sec", 2.0) or 0.0)
+    return max(0.5, min(6.0, wait))
+
+
+def _stream_ambiguous_wait_sec(cfg) -> float:
+    wait = float(getattr(cfg, "assist_stream_asr_ambiguous_wait_sec", 0.8) or 0.0)
+    return max(0.1, min(3.0, wait))
+
+
+def _stream_hold_max_sec(cfg) -> float:
+    wait = float(getattr(cfg, "assist_stream_asr_hold_max_sec", 30.0) or 0.0)
+    return max(5.0, min(60.0, wait))
 
 
 def _stream_instant(cfg, stream_mode: bool = False) -> bool:

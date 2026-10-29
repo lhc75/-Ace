@@ -923,6 +923,16 @@ def _try_flush_asr_question_group(cfg, session, now_mono: float, force: bool = F
         _asr_state.try_flush_question_group(cfg, session, now_mono, force)
 
 
+def _dispatch_stream_final(cfg, session) -> None:
+    with _asr_state_lock:
+        _asr_state.dispatch_stream_final(cfg, session)
+
+
+def _note_stream_interim(now_mono: float) -> None:
+    with _asr_state_lock:
+        _asr_state.note_stream_interim(now_mono)
+
+
 def _handle_auto_detect_asr_text(cfg, session, pub: str, source: str, now_mono: float) -> None:
     with _asr_state_lock:
         _asr_state.handle_auto_detect_asr_text(cfg, session, pub, source, now_mono)
@@ -1540,10 +1550,15 @@ def _interviewer_asr_worker(
 
 
 def _on_stream_interim(recording_generation: int, sentence_id: int, text: str) -> None:
-    """流式中间结果回调：只推给前端做“进行中”展示，不进合并缓冲、不触发自动答题。"""
+    """流式中间结果回调：推给前端做“进行中”展示，不进合并缓冲、不触发自动答题。
+
+    非空中间结果同时记作“面试官又开口了”：挂起中的半句据此继续等下文，而不是被发出去。
+    """
     with _recording_generation_lock:
         if not _recording_generation_is_current(recording_generation):
             return
+        if (text or "").strip():
+            _note_stream_interim(time.monotonic())
         broadcast({"type": "transcription_interim", "text": text, "sentence_id": sentence_id})
 
 
@@ -1563,9 +1578,9 @@ def _on_stream_final(recording_generation: int, session, sentence_id: int, text:
             _ilog.info("ASR publish(stream)=%r", pub[:120])
             _publish_stream_fragment(current_cfg, session, pub, time.monotonic())
             if _stream_instant_dispatch_active(current_cfg):
-                # 即时派发：该句即完整问题，同一线程内立刻提交，不等
-                # flush worker 的 tick 与任何确认窗口。
-                _flush_asr_question_group_now(current_cfg, session)
+                # 即时派发：完整问句同一线程内立刻提交；半句/陈述句交给
+                # flush worker 的 tick，等下文或短暂静默后再发。
+                _dispatch_stream_final(current_cfg, session)
 
 
 def _stream_instant_dispatch_active(cfg) -> bool:
@@ -1650,9 +1665,9 @@ def _on_generic_final(recording_generation: int, session, sentence_id: int, text
             _publish_stream_fragment(current_cfg, session, pub, time.monotonic())
         broadcast({"type": "transcription_interim", "text": "", "sentence_id": sentence_id})
         if pub and _stream_instant_dispatch_active(current_cfg):
-            # 即时派发：该句即完整问题，同一线程内立刻提交，不等
-            # flush worker 的 tick 与任何确认窗口。
-            _flush_asr_question_group_now(current_cfg, session)
+            # 即时派发：完整问句同一线程内立刻提交；半句/陈述句交给
+            # flush worker 的 tick，等下文或短暂静默后再发。
+            _dispatch_stream_final(current_cfg, session)
 
 
 def _start_generic_interim_transcriber(

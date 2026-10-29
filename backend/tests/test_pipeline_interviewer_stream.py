@@ -140,14 +140,14 @@ def test_stop_interviewer_stream_aborts_on_finish_error(broadcast_spy, current_g
 
 def test_on_stream_final_flushes_immediately_in_instant_mode(monkeypatch, broadcast_spy, current_generation):
     flushed = []
-    monkeypatch.setattr(pipeline, "_flush_asr_question_group_now", lambda *args: flushed.append(args))
+    monkeypatch.setattr(pipeline, "_dispatch_stream_final", lambda *args: flushed.append(args))
     monkeypatch.setattr(pipeline, "_publish_stream_fragment", lambda *args: None)
     cfg = AppConfig()  # assist_stream_asr_instant_dispatch 默认 True
     monkeypatch.setattr(pipeline, "get_config", lambda: cfg)
     pipeline._set_stream_mode(True)
     try:
         pipeline._on_stream_final(current_generation, _Session(), 1, "请介绍一下 Redis 的持久化机制")
-        assert len(flushed) == 1  # 即时派发：同线程立即 flush 问题组
+        assert len(flushed) == 1  # 即时派发：同线程交给分级派发（完整问句当场发）
 
         instant_off = AppConfig(assist_stream_asr_instant_dispatch=False)
         monkeypatch.setattr(pipeline, "get_config", lambda: instant_off)
@@ -174,7 +174,7 @@ def test_on_generic_final_publishes_then_clears_and_dispatches(monkeypatch, broa
     published = []
     flushed = []
     monkeypatch.setattr(pipeline, "_publish_stream_fragment", lambda *args: published.append(args))
-    monkeypatch.setattr(pipeline, "_flush_asr_question_group_now", lambda *args: flushed.append(args))
+    monkeypatch.setattr(pipeline, "_dispatch_stream_final", lambda *args: flushed.append(args))
     cfg = AppConfig()  # assist_stream_asr_instant_dispatch 默认 True
     monkeypatch.setattr(pipeline, "get_config", lambda: cfg)
     pipeline._set_stream_mode(True)
