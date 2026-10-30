@@ -392,7 +392,7 @@ export default function InterviewOverlay() {
 
   const answerFontSize = Math.max(12, fontSize)
   const shellClass = `ov-shell ${overlayMode === 'focus' ? 'ov-shell--focus' : overlayMode === 'prompt' ? 'ov-shell--nobg' : 'ov-shell--bg'}`
-  const focusSurfaceAlpha = Math.max(0.1, Math.min(0.95, opacity))
+  const focusSurfaceAlpha = Math.max(0.05, Math.min(0.95, opacity))
   const focusShellStyle = {
     '--ov-focus-bg-alpha': String(focusSurfaceAlpha),
     '--ov-focus-toolbar-alpha': String(Math.max(0.08, Math.min(0.42, focusSurfaceAlpha * 0.48))),

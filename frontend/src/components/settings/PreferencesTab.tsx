@@ -336,7 +336,7 @@ export default function PreferencesTab() {
               </p>
             </Field>
             <Field label={`不透明度: ${Math.round(overlayOpacity * 100)}%`}>
-              <input type="range" min={10} max={100} value={Math.round(overlayOpacity * 100)}
+              <input type="range" min={5} max={100} value={Math.round(overlayOpacity * 100)}
                 onChange={(e) => setOverlayOpacity(Number(e.target.value) / 100)} className="w-full max-w-[200px]" />
             </Field>
             {overlayMode === 'focus' && (
