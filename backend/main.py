@@ -101,8 +101,19 @@ async def lifespan(app: FastAPI):
             _log.info("Resume auto-restored from history (id=%s)", cfg.resume_active_history_id)
     except Exception as e:
         _log.debug("Resume auto-restore skipped: %s", e)
+    try:
+        from core import session_store
+        if session_store.enable_and_restore():
+            _log.info("Session records auto-restored from disk")
+    except Exception as e:
+        _log.debug("Session state restore skipped: %s", e)
     yield
     _log.info("SHUTDOWN cleaning up")
+    try:
+        from core import session_store
+        session_store.flush()
+    except Exception as e:
+        _log.debug("Session state flush skipped: %s", e)
     assist.stop_interview_loop()
     assist.shutdown_background_workers()
     dispatch_task.cancel()

@@ -1,7 +1,7 @@
 import time
 import threading
 from typing import Optional, Union
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 
 
 @dataclass
@@ -81,6 +81,7 @@ class Session:
             self.transcription_history.append(entry)
             if len(self.transcription_history) > self.MAX_TRANSCRIPTION_HISTORY:
                 self.transcription_history = self.transcription_history[-self.MAX_TRANSCRIPTION_HISTORY:]
+            _mark_session_dirty()
             return entry
         return None
 
@@ -109,6 +110,7 @@ class Session:
                         self.candidate_transcription_history[-1] = cleaned
                     else:
                         self.candidate_transcription_history.append(cleaned)
+                    _mark_session_dirty()
                     return seg
         self.candidate_transcription_history.append(cleaned)
         if len(self.candidate_transcription_history) > self.MAX_CANDIDATE_TRANSCRIPTION_HISTORY:
@@ -123,6 +125,7 @@ class Session:
         self.candidate_answer_segments.append(segment)
         if len(self.candidate_answer_segments) > self.MAX_CANDIDATE_SEGMENTS:
             self.candidate_answer_segments = self.candidate_answer_segments[-self.MAX_CANDIDATE_SEGMENTS:]
+        _mark_session_dirty()
         return segment
 
     def open_candidate_answer_window(self, qa_id: str):
@@ -208,6 +211,7 @@ class Session:
         self.qa_pairs.append(qa)
         if len(self.qa_pairs) > self.MAX_QA_PAIRS:
             self.qa_pairs = self.qa_pairs[-self.MAX_QA_PAIRS:]
+        _mark_session_dirty()
         return qa
 
     def replace_qa(
@@ -248,6 +252,7 @@ class Session:
                 question,
                 answer,
             )
+            _mark_session_dirty()
             return True
         return False
 
@@ -523,6 +528,8 @@ class Session:
         self.system_summary = ""
         self._compaction_running = False
         self.last_llm_history_stats = {}
+        # 清空也要落盘：否则清空后重开应用又把旧记录读回来了。
+        _mark_session_dirty()
 
     def clear(self):
         self.clear_content()
@@ -562,11 +569,73 @@ class Session:
             }
         return payload
 
+    def to_state(self) -> dict:
+        """完整持久化状态（不截断，供跨重启恢复；与 snapshot 的截断视图不同）。"""
+        return {
+            "version": 1,
+            "transcription_history": [asdict(item) for item in self.transcription_history],
+            "candidate_transcription_history": list(self.candidate_transcription_history),
+            "candidate_answer_segments": [asdict(seg) for seg in self.candidate_answer_segments],
+            "conversation_history": [dict(m) for m in self.conversation_history],
+            "qa_pairs": [asdict(qa) for qa in self.qa_pairs],
+            "system_summary": self.system_summary,
+        }
+
+    def load_state(self, data: dict) -> bool:
+        """从持久化状态恢复记录。返回是否恢复到任何内容（供启动日志判断）。"""
+        if not isinstance(data, dict):
+            return False
+
+        def _keep_fields(raw: dict, cls) -> dict:
+            allowed = {f.name for f in fields(cls)}
+            return {k: v for k, v in raw.items() if k in allowed}
+
+        transcriptions: list[TranscriptEntry] = []
+        for raw in data.get("transcription_history", []) or []:
+            if isinstance(raw, dict) and raw.get("id") is not None and "text" in raw:
+                transcriptions.append(TranscriptEntry(**_keep_fields(raw, TranscriptEntry)))
+        candidate_texts = [
+            str(t) for t in (data.get("candidate_transcription_history", []) or []) if t is not None
+        ]
+        candidate_segments: list[CandidateAnswerSegment] = []
+        for raw in data.get("candidate_answer_segments", []) or []:
+            if isinstance(raw, dict) and "text" in raw:
+                candidate_segments.append(CandidateAnswerSegment(**_keep_fields(raw, CandidateAnswerSegment)))
+        conversation: list[dict] = [
+            dict(m) for m in (data.get("conversation_history", []) or []) if isinstance(m, dict)
+        ]
+        qa_pairs: list[QAPair] = []
+        for raw in data.get("qa_pairs", []) or []:
+            if isinstance(raw, dict) and raw.get("id") and "question" in raw and "answer" in raw:
+                qa_pairs.append(QAPair(**_keep_fields(raw, QAPair)))
+
+        self.transcription_history = transcriptions[-self.MAX_TRANSCRIPTION_HISTORY:]
+        self.candidate_transcription_history = candidate_texts[-self.MAX_CANDIDATE_TRANSCRIPTION_HISTORY:]
+        self.candidate_answer_segments = candidate_segments[-self.MAX_CANDIDATE_SEGMENTS:]
+        self.conversation_history = conversation
+        self.qa_pairs = qa_pairs[-self.MAX_QA_PAIRS:]
+        self.system_summary = str(data.get("system_summary", "") or "")
+        return bool(
+            self.transcription_history
+            or self.candidate_transcription_history
+            or self.qa_pairs
+        )
+
 
 _session: Optional[Session] = None
 _lock = threading.Lock()
 # 并行答题时对 conversation_history / qa_pairs 的写入需串行
 conversation_lock = threading.RLock()
+
+
+def _mark_session_dirty() -> None:
+    """记录发生变更：通知持久化模块标脏。未启用持久化时（单测）是廉价 no-op。"""
+    try:
+        from core import session_store
+
+        session_store.mark_dirty()
+    except Exception:
+        pass
 
 
 def get_session() -> Session:

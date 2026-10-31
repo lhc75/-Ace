@@ -1147,6 +1147,19 @@ function applyStealthMode(active) {
   } else if (!next && !tray) {
     createTray();
   }
+  // macOS: 结束笔试必须把程序坞图标找回来。隐身期间主窗口被浮层隐藏会触发
+  // app.dock.hide()（见 mainWindow 'hide' 处理），而结束笔试时主窗口往往仍被
+  // 浮层盖着、不会触发 'show'，程序坞图标就一直不回来。这里按隐身状态直接
+  // 断言程序坞可见性：退出隐身即显示，确保用户点得到图标回到应用。
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      if (next) {
+        app.dock.hide();
+      } else {
+        app.dock.show();
+      }
+    } catch { /* dock 不可用时忽略 */ }
+  }
   applyOverlayMousePassthrough();
 }
 
