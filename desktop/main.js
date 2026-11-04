@@ -60,33 +60,15 @@ const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
 const { pickBackendPort } = require('./portPicker');
-
-// Windows: 透明 BrowserWindow 需要 DWM 硬件加速。
-// 历史遗留 disableHardwareAcceleration() 已移除 ——
-// 它会让 setContentProtection 退化成「窗口被捕获时显示黑色」(WDA_MONITOR)，
-// 而非 Win10 2004+ 才支持的「直接从屏幕捕获中排除」(WDA_EXCLUDEFROMCAPTURE)，
-// 后者才是真正的屏幕共享隐身。
-// 如个别老 Win7/Win8 设备透明窗口出现渲染异常，可设环境变量 ELECTRON_DISABLE_HW_ACCEL=1 回退。
-// 默认启用进程内 GPU (in-process-gpu): 从下载目录 / 受管控目录启动时, 系统安全策略或
-// 安全软件会终止独立 GPU 子进程 (日志: "GPU process exited unexpectedly:
-// exit_code=-2147483645" / "GPU process isn't usable. Goodbye."), 界面因此不出现。
-// 进程内 GPU 不再派生该子进程, 同时保留透明浮窗与 setContentProtection 所需的硬件加速。
-// 个别显卡驱动在进程内 GPU 下渲染异常时, 可设环境变量 ELECTRON_INPROCESS_GPU=0 回退。
-// 旧版透明视觉兼容开关 (enable-transparent-visuals) 默认关闭: 部分 Windows 图形栈下
-// 它会连累渲染进程崩溃 (日志: "Renderer process crashed" /
-// "eglCreateWindowSurface failed with error EGL_BAD_ALLOC" /
-// "SwapChain11 ... HRESULT: 0x887A0001"), 表现为白屏窗口;
-// 老机器需要时为透明浮窗设 ELECTRON_TRANSPARENT_VISUALS=1 重新开启。
-// 另: Windows 上仅主窗口与浮窗关闭渲染器沙箱 (createWindowWebPreferences),
-// 缓解图形环境 / 安全软件与渲染沙箱的冲突, 其余 Chromium 安全机制不受影响。
-if (process.platform === 'win32') {
-  for (const flag of getWindowsStartupSwitches(process.env)) {
-    app.commandLine.appendSwitch(flag);
-  }
-  if (process.env.ELECTRON_DISABLE_HW_ACCEL === '1') {
-    app.disableHardwareAcceleration();
-  }
-}
+const {
+  MAX_SAFETY_LEVEL,
+  escalateStartupLevel,
+  markCleanExit,
+  markStartupStable,
+  resolveStartupSafetyLevel,
+  shouldDisableHardwareAcceleration,
+} = require('./startupSafety');
+const { initFileLogger } = require('./appLogger');
 
 const pkg = require('./package.json');
 
@@ -112,6 +94,75 @@ function loadAppDisplayName() {
 
 const APP_DISPLAY_NAME = loadAppDisplayName();
 
+// 名字必须在任何 getPath('userData') 之前定下来：userData 目录名由 app name 决定，
+// 晚设置会让配置/日志落到另一个目录（老用户的设置会“丢失”）。
+try {
+  app.setName(APP_DISPLAY_NAME);
+} catch {
+  /* 个别平台/版本可能不支持 */
+}
+const USER_DATA_DIR = app.getPath('userData');
+
+/** 出错时告诉用户日志在哪：桌面日志 + 后端日志（同目录的 log/ 下） */
+function logPathsText() {
+  return `${logPathsText()}\n后端日志：${path.join(USER_DATA_DIR, 'log')}`;
+}
+
+// 桌面日志：打包后的 Windows 应用没有控制台，启动阶段被系统/驱动/安全软件杀掉时
+// 用户看不到任何信息。同步写盘，崩溃前的最后一行一定能留下。
+const logger = initFileLogger({ dir: USER_DATA_DIR });
+
+// 启动哨兵：上次启动如果在窗口稳定显示前就消失了（Windows 上表现为托盘一闪而过），
+// 本次自动降一级图形栈再试。详见 startupSafety.js。
+const startupAttempt = resolveStartupSafetyLevel(USER_DATA_DIR, {
+  env: process.env,
+  argv: process.argv,
+});
+
+logger.logStartupContext({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  platform: process.platform,
+  arch: process.arch,
+  osRelease: require('os').release(),
+  systemVersion: typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : 'unknown',
+  packaged: app.isPackaged,
+  userData: USER_DATA_DIR,
+  logPath: logger.logPath,
+  startupSafetyLevel: `${startupAttempt.level}${startupAttempt.forced ? ' (forced)' : ''}`,
+  previousStartupFailed: startupAttempt.previousFailed,
+});
+
+// Windows: 透明 BrowserWindow 需要 DWM 硬件加速。
+// 历史遗留 disableHardwareAcceleration() 已移除 ——
+// 它会让 setContentProtection 退化成「窗口被捕获时显示黑色」(WDA_MONITOR)，
+// 而非 Win10 2004+ 才支持的「直接从屏幕捕获中排除」(WDA_EXCLUDEFROMCAPTURE)，
+// 后者才是真正的屏幕共享隐身。
+// 如个别老 Win7/Win8 设备透明窗口出现渲染异常，可设环境变量 ELECTRON_DISABLE_HW_ACCEL=1 回退。
+// 默认启用进程内 GPU (in-process-gpu): 从下载目录 / 受管控目录启动时, 系统安全策略或
+// 安全软件会终止独立 GPU 子进程 (日志: "GPU process exited unexpectedly:
+// exit_code=-2147483645" / "GPU process isn't usable. Goodbye."), 界面因此不出现。
+// 进程内 GPU 不再派生该子进程, 同时保留透明浮窗与 setContentProtection 所需的硬件加速。
+// 个别显卡驱动在进程内 GPU 下渲染异常时, 可设环境变量 ELECTRON_INPROCESS_GPU=0 回退。
+// 旧版透明视觉兼容开关 (enable-transparent-visuals) 默认关闭: 部分 Windows 图形栈下
+// 它会连累渲染进程崩溃 (日志: "Renderer process crashed" /
+// "eglCreateWindowSurface failed with error EGL_BAD_ALLOC" /
+// "SwapChain11 ... HRESULT: 0x887A0001"), 表现为白屏窗口;
+// 老机器需要时为透明浮窗设 ELECTRON_TRANSPARENT_VISUALS=1 重新开启。
+// 另: Windows 上仅主窗口与浮窗关闭渲染器沙箱 (createWindowWebPreferences),
+// 缓解图形环境 / 安全软件与渲染沙箱的冲突, 其余 Chromium 安全机制不受影响。
+//
+// 安全级别（startupAttempt.level）决定这组开关；它的来历见 startupSafety.js。
+if (process.platform === 'win32') {
+  for (const flag of getWindowsStartupSwitches(process.env, startupAttempt.level)) {
+    app.commandLine.appendSwitch(flag);
+  }
+  if (shouldDisableHardwareAcceleration(startupAttempt.level, process.env)) {
+    app.disableHardwareAcceleration();
+  }
+}
+
 const ROOT = path.resolve(__dirname, '..');
 const RESOURCE_ROOT = app.isPackaged ? process.resourcesPath : ROOT;
 const BACKEND_DIR = path.join(RESOURCE_ROOT, 'backend');
@@ -133,6 +184,61 @@ let stealthModeActive = false;
 let overlayInteractiveHover = false;
 let pythonProcess = null;
 let isQuitting = false;
+
+// ── 启动健康状态（见 startupSafety.js / appLogger.js） ────────────────────
+// 主窗口从未显示就退出，在 Windows 上就是“托盘一闪而过、软件不出现”。
+// 用哨兵文件记录每次启动有没有走到窗口显示，并据此在下次启动降级图形栈。
+const STARTUP_STABLE_DELAY_MS = 15 * 1000; // 窗口显示后观察多久算启动成功
+const STARTUP_WATCHDOG_MS = 25 * 1000; // 窗口迟迟不显示时的兜底强制显示
+let hasShownMainWindow = false;
+let startupStable = false;
+let startupWatchdog = null;
+let startupRelaunching = false;
+let overlayPreheatTimer = null;
+
+/**
+ * 启动阶段（主窗口可见并稳定之前）图形子进程崩溃：记录并自动以更高安全级别
+ * 重启一次。进程被 OS 直接杀掉时这里不会执行，靠下次启动的哨兵兜底。
+ */
+function noteStartupCrash(kind, details) {
+  logger.error(`[startup] ${kind}:`, details);
+  if (isQuitting || startupRelaunching) return;
+  if (process.platform !== 'win32') return;
+  const { level, changed } = escalateStartupLevel(USER_DATA_DIR);
+  if (startupStable) {
+    // 已经稳定运行过：不打扰当前会话，但记下更保守的级别供下次启动使用
+    if (changed) logger.warn(`[startup] 下次启动将使用安全级别 ${level}`);
+    return;
+  }
+  if (!changed) {
+    logger.error(`[startup] 已处于最高安全级别 ${MAX_SAFETY_LEVEL}，仍需人工排查`);
+    return;
+  }
+  startupRelaunching = true;
+  isQuitting = true;
+  logger.warn(`[startup] 以安全级别 ${level} 重启（关闭 GPU 沙箱/软件渲染）`);
+  setTimeout(() => {
+    app.relaunch();
+    app.quit();
+  }, 200);
+}
+
+/** 主窗口显示并稳定一段时间后再预热悬浮窗，避免启动瞬间创建两个 GPU 表面 */
+function scheduleOverlayPreheat() {
+  if (overlayPreheatTimer) return;
+  overlayPreheatTimer = setTimeout(() => {
+    overlayPreheatTimer = null;
+    if (isQuitting) return;
+    if (overlayWindow && !overlayWindow.isDestroyed()) return;
+    try {
+      createOverlayWindow();
+    } catch (error) {
+      console.warn('overlay preheat failed:', error?.message || error);
+    }
+  }, 3000);
+  if (typeof overlayPreheatTimer.unref === 'function') overlayPreheatTimer.unref();
+}
+
 let shortcuts = {};
 let _blurTimer = null;
 let overlayAutoResizeUntil = 0;
@@ -397,12 +503,29 @@ function startPythonBackend() {
 
   relayChildOutput(pythonProcess.stdout, process.stdout, '[py] ');
   relayChildOutput(pythonProcess.stderr, process.stderr, '[py] ');
+  // spawn 失败（后端文件被安全软件隔离 / 缺少运行库）是以 'error' 事件异步报的，
+  // 不监听就会变成未捕获异常，整个主进程直接退出、用户什么都看不到。
+  pythonProcess.on('error', (error) => {
+    console.error(`[py] spawn error: ${error?.message || error}`);
+    if (isQuitting) return;
+    isQuitting = true;
+    dialog.showErrorBox(
+      '后端启动失败',
+      `无法启动 Python 后端进程：${error?.message || error}\n\n`
+        + '常见原因：杀毒软件拦截了 interview-assistant-backend.exe，或系统缺少运行库。\n'
+        + `请把后端程序加入杀毒软件信任名单后重试。\n\n${logPathsText()}`,
+    );
+    app.quit();
+  });
   pythonProcess.on('close', (code) => {
     console.log(`[py] exited with code ${code}`);
     pythonProcess = null;
     if (!isQuitting) {
       if (mainWindow) {
-        dialog.showErrorBox('后端已退出', `Python 后端进程异常退出 (code ${code})。\n请查看日志确认原因后重试。`);
+        dialog.showErrorBox(
+          '后端已退出',
+          `Python 后端进程异常退出 (code ${code})。\n请查看日志确认原因后重试。\n\n${logPathsText()}`,
+        );
       }
       app.quit();
     }
@@ -424,11 +547,23 @@ function createWindow() {
     webPreferences: createWindowWebPreferences(process.platform, path.join(__dirname, 'preload.js')),
   });
 
-  mainWindow.setContentProtection(true);
+  try {
+    mainWindow.setContentProtection(true);
+  } catch (error) {
+    console.warn('main window setContentProtection failed:', error?.message || error);
+  }
 
-  // 每次启动清除缓存，确保加载到最新的前端构建（避免设置里识别引擎等不更新）
-  mainWindow.webContents.session.clearCache().then(() => {
-    mainWindow.loadURL(SERVER_URL);
+  // 每次启动清除缓存，确保加载到最新的前端构建（避免设置里识别引擎等不更新）。
+  // clearCache 失败（缓存库损坏 / 文件被占用）不能连累启动：照样加载页面。
+  const loadMainPage = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.loadURL(SERVER_URL).catch((error) => {
+      console.error('loadURL failed:', error?.message || error);
+    });
+  };
+  mainWindow.webContents.session.clearCache().then(loadMainPage, (error) => {
+    console.warn('clearCache failed, loading anyway:', error?.message || error);
+    loadMainPage();
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -438,8 +573,37 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
+    hasShownMainWindow = true;
+    if (startupWatchdog) {
+      clearTimeout(startupWatchdog);
+      startupWatchdog = null;
+    }
     mainWindow.show();
+    console.log('[startup] main window shown');
+    // 窗口显示后继续观察一段时间再判定启动成功：显卡驱动/安全软件造成的退出
+    // 往往发生在首帧渲染后的几秒内。
+    setTimeout(() => {
+      if (isQuitting || !hasShownMainWindow) return;
+      startupStable = true;
+      const state = markStartupStable(USER_DATA_DIR);
+      console.log(`[startup] startup stable (safety level ${state.level})`);
+      scheduleOverlayPreheat();
+    }, STARTUP_STABLE_DELAY_MS);
   });
+
+  // 看门狗：窗口迟迟不显示时至少把它强制显示出来，并把状态写进日志，
+  // 而不是让用户对着一个看不见的进程和一闪而过的托盘图标。
+  startupWatchdog = setTimeout(() => {
+    startupWatchdog = null;
+    if (hasShownMainWindow || isQuitting) return;
+    console.error('[startup] main window never became ready-to-show; forcing show');
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+    } catch (error) {
+      console.error('[startup] force show failed:', error?.message || error);
+    }
+  }, STARTUP_WATCHDOG_MS);
+  if (typeof startupWatchdog.unref === 'function') startupWatchdog.unref();
 
   // Windows 下最小化 = 隐藏到托盘
   mainWindow.on('minimize', (e) => {
@@ -1639,6 +1803,9 @@ function gracefulStopPython(timeoutMs = 20000) {
 
 app.on('before-quit', (event) => {
   isQuitting = true;
+  // 主动退出（含我们自己的启动失败退出/安全模式重启）不算启动崩溃，
+  // 清掉哨兵，避免下次启动被无谓降级。
+  markCleanExit(USER_DATA_DIR);
   if (!pythonProcess || pythonStopPromise) return;
   event.preventDefault();
   gracefulStopPython().then(() => {
@@ -1647,12 +1814,61 @@ app.on('before-quit', (event) => {
   });
 });
 
+// 图形/渲染子进程崩溃：写日志；启动阶段崩溃则自动降级图形栈重启。
+// 进程被 OS / 安全软件整个杀掉时这些事件不会触发，靠下次启动的哨兵兜底。
+app.on('child-process-gone', (_event, details = {}) => {
+  logger.error(`[crash] child-process-gone type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`);
+  if (details.type === 'GPU' && details.reason !== 'clean-exit') {
+    noteStartupCrash('gpu-process-gone', details);
+  }
+});
+app.on('render-process-gone', (_event, webContents, details = {}) => {
+  const isMain = Boolean(mainWindow && !mainWindow.isDestroyed() && webContents === mainWindow.webContents);
+  logger.error(`[crash] render-process-gone main=${isMain} reason=${details.reason} exitCode=${details.exitCode}`);
+  if (isMain && details.reason !== 'clean-exit') {
+    noteStartupCrash('main-renderer-gone', details);
+  }
+});
+
+// 启动阶段没有控制台：未捕获异常也要写盘，避免“静默退出”。
+process.on('uncaughtException', (error) => {
+  logger.error('[main] uncaughtException:', error);
+});
+process.on('unhandledRejection', (reason) => {
+  logger.error('[main] unhandledRejection:', reason);
+});
+
 app.whenReady().then(async () => {
   try {
     app.setName(APP_DISPLAY_NAME);
   } catch {
     /* 个别平台/版本可能不支持 */
   }
+  if (process.platform === 'win32') {
+    warnIfUnsupportedWindows();
+  }
+  try {
+    await startApp();
+  } catch (error) {
+    // 任何时候启动流程抛错都留下日志并告诉用户，而不是无声退出。
+    logger.error('[startup] startApp failed:', error);
+    try {
+      dialog.showErrorBox(
+        '启动失败',
+        `应用启动过程中出错：${error?.message || error}\n\n${logPathsText()}`,
+      );
+    } catch {
+      /* 对话框都弹不出来时至少日志已在 */
+    }
+    isQuitting = true;
+    app.quit();
+  }
+});
+
+/**
+ * 应用主启动流程。拆成独立函数，异常统一由 whenReady 里的 try/catch 记日志 + 弹窗。
+ */
+async function startApp() {
   createAppMenu();
   console.log('Starting Python backend...');
   try {
@@ -1668,7 +1884,11 @@ app.whenReady().then(async () => {
   try {
     startPythonBackend();
   } catch (error) {
-    dialog.showErrorBox('后端启动失败', error?.message || String(error));
+    dialog.showErrorBox(
+      '后端启动失败',
+      `${error?.message || String(error)}\n\n${logPathsText()}`,
+    );
+    isQuitting = true;
     app.quit();
     return;
   }
@@ -1678,24 +1898,59 @@ app.whenReady().then(async () => {
     console.log('Backend ready, creating window...');
   } catch (err) {
     console.error('Failed to start backend:', err.message);
+    dialog.showErrorBox(
+      '后端启动失败',
+      `本机后端服务未能在 40 秒内启动：${err?.message || err}\n\n`
+        + '请查看日志确认原因后重试；若杀毒软件拦截了 interview-assistant-backend.exe，'
+        + '请把它加入信任名单。\n\n'
+        + `${logPathsText()}`,
+    );
+    isQuitting = true;
     app.quit();
     return;
   }
 
   createWindow();
-  createTray();
-  registerShortcuts();
-  registerUpdater(mainWindow);
+  try {
+    createTray();
+  } catch (error) {
+    // 托盘失败不该阻断主窗口显示
+    console.error('createTray failed:', error?.message || error);
+  }
+  try {
+    registerShortcuts();
+  } catch (error) {
+    console.error('registerShortcuts failed:', error?.message || error);
+  }
+  try {
+    registerUpdater(mainWindow);
+  } catch (error) {
+    console.error('registerUpdater failed:', error?.message || error);
+  }
+  // 悬浮窗预热推迟到主窗口稳定之后（见 scheduleOverlayPreheat），
+  // 启动瞬间只创建一个 GPU 表面，减少脆弱图形栈上的崩溃概率。
+}
 
-  setImmediate(() => {
-    if (overlayWindow && !overlayWindow.isDestroyed()) return;
-    try {
-      createOverlayWindow();
-    } catch (error) {
-      console.warn('overlay preheat failed:', error?.message || error);
+/** Windows 10 1809 以下 / Win7/Win8 不在 Electron 41 的支持范围内，明确提示 */
+function warnIfUnsupportedWindows() {
+  try {
+    const version = typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : '';
+    const [major, , build] = String(version).split('.').map(Number);
+    if (Number.isFinite(major) && (major < 10 || (major === 10 && Number.isFinite(build) && build < 17763))) {
+      logger.warn(`[startup] unsupported Windows version: ${version}`);
+      dialog.showMessageBox({
+        type: 'warning',
+        title: APP_DISPLAY_NAME,
+        message: `当前 Windows 版本（${version || '未知'}）低于本软件要求的 Windows 10 1809。`,
+        detail: '应用可能无法正常启动或显示窗口。如遇闪退，请升级系统后重试。',
+        buttons: ['知道了'],
+        noLink: true,
+      }).catch(() => {});
     }
-  });
-});
+  } catch (error) {
+    console.warn('Windows version check failed:', error?.message || error);
+  }
+}
 
 app.on('window-all-closed', () => {
   app.quit();

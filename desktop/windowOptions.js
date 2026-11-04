@@ -54,10 +54,27 @@ function createWindowWebPreferences(platform, preloadPath, overrides = {}) {
 // SwapChain11 errors as above). Opt back in with
 // ELECTRON_TRANSPARENT_VISUALS=1 when an older machine needs it for the
 // transparent overlay.
-function getWindowsStartupSwitches(env = {}) {
+//
+// safetyLevel comes from startupSafety.js (the startup sentinel): a machine whose
+// previous launch died before the window ever appeared escalates to a more
+// conservative graphics stack on the next launch.
+//   0 — in-process GPU (historical default; most machines, best stealth quality)
+//   1 — GPU back in its own process with the GPU sandbox off: if the GPU child is
+//       killed by security software or a driver fault, the main process survives
+//   2 — software rendering (--disable-gpu): starts on virtually any machine
+function getWindowsStartupSwitches(env = {}, safetyLevel = 0) {
+  const level = Number.isFinite(Number(safetyLevel)) && Number(safetyLevel) > 0
+    ? Math.floor(Number(safetyLevel))
+    : 0;
+  if (level >= 2) {
+    return ['disable-gpu', 'disable-gpu-compositing'];
+  }
   const switches = [];
-  if (env.ELECTRON_INPROCESS_GPU !== '0') {
+  if (level === 0 && env.ELECTRON_INPROCESS_GPU !== '0') {
     switches.push('in-process-gpu');
+  }
+  if (level >= 1) {
+    switches.push('disable-gpu-sandbox');
   }
   if (env.ELECTRON_TRANSPARENT_VISUALS === '1') {
     switches.push('enable-transparent-visuals');

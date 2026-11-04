@@ -68,6 +68,20 @@ test('Windows startup keeps the legacy transparent-visuals switch off unless req
   );
 });
 
+test('startup safety level 1 moves the GPU back to its own unsandboxed process', () => {
+  assert.deepEqual(getWindowsStartupSwitches({}, 1), ['disable-gpu-sandbox']);
+  // 用户已显式关闭 in-process-gpu 时，L1 额外关掉 GPU 沙箱
+  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '0' }, 1), ['disable-gpu-sandbox']);
+});
+
+test('startup safety level 2 falls back to software rendering', () => {
+  assert.deepEqual(getWindowsStartupSwitches({}, 2), ['disable-gpu', 'disable-gpu-compositing']);
+  assert.deepEqual(
+    getWindowsStartupSwitches({ ELECTRON_TRANSPARENT_VISUALS: '1' }, 9),
+    ['disable-gpu', 'disable-gpu-compositing'],
+  );
+});
+
 test('Windows windows opt out of the renderer sandbox while keeping context isolation', () => {
   const prefs = createWindowWebPreferences('win32', '/tmp/preload.js');
 
