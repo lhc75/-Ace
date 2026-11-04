@@ -40,28 +40,27 @@ function createWindowWebPreferences(platform, preloadPath, overrides = {}) {
   };
 }
 
-// Windows: launching from a downloads / security-managed directory (for example
-// a NetDisk download folder) can get the standalone GPU child process killed by
-// OS policy or third-party security software ("GPU process exited unexpectedly:
-// exit_code=-2147483645", "GPU process isn't usable. Goodbye."), leaving the app
-// without a window. Running the GPU service inside the browser process keeps
-// DWM hardware acceleration (required by the transparent overlay and
-// setContentProtection) without spawning that child process.
-// Escape hatch: ELECTRON_INPROCESS_GPU=0 restores the separate GPU process.
+// Windows 启动开关：默认把 GPU 留在独立子进程里。
 //
-// The legacy --enable-transparent-visuals switch is off by default: on some
-// Windows graphics stacks it crashes the renderer (same EGL_BAD_ALLOC /
-// SwapChain11 errors as above). Opt back in with
-// ELECTRON_TRANSPARENT_VISUALS=1 when an older machine needs it for the
-// transparent overlay.
+// 历史：因为安全软件/系统策略会结束独立 GPU 子进程（"GPU process exited
+// unexpectedly" / "GPU process isn't usable. Goodbye."），这里曾默认开启
+// --in-process-gpu。但现场 A/B 证明该开关本身是更大的坑：在 Intel Iris Xe +
+// NVIDIA MX450 + 虚拟显示器驱动（GameViewer Virtual Display Adapter）这类
+// 多显卡环境下，创建主窗口/透明悬浮窗时整个浏览器进程会原生崩溃——没有
+// 弹窗、没有日志、1 秒内消失。独立 GPU 子进程即使被杀也只是渲染降级，主进程
+// 还活着，配合 main.js 的 child-process-gone 监听可以自动切到软件渲染重启。
 //
-// safetyLevel comes from startupSafety.js (the startup sentinel): a machine whose
-// previous launch died before the window ever appeared escalates to a more
-// conservative graphics stack on the next launch.
-//   0 — in-process GPU (historical default; most machines, best stealth quality)
-//   1 — GPU back in its own process with the GPU sandbox off: if the GPU child is
-//       killed by security software or a driver fault, the main process survives
-//   2 — software rendering (--disable-gpu): starts on virtually any machine
+// 需要旧的 in-process-gpu 行为时显式设 ELECTRON_INPROCESS_GPU=1；设 0 与默认相同。
+//
+// 安全级别（startupSafety.js 的启动哨兵）：
+//   0（默认）— 独立 GPU + 关闭 GPU 沙箱：规避 in-process 崩溃，也绕开沙箱
+//               初始化失败导致的 GPU 子进程不可用
+//   1        — 再关掉 GPU 合成（软件合成，保留 GPU 进程）
+//   2        — 纯软件渲染（--disable-gpu），几乎在任何显卡/虚拟机/远程桌面下都能启动
+//
+// 旧版 --enable-transparent-visuals 默认关闭：部分 Windows 图形栈下它会连累
+// 渲染进程崩溃（EGL_BAD_ALLOC / SwapChain11 错误）。需要时为透明浮窗设
+// ELECTRON_TRANSPARENT_VISUALS=1 重新开启。
 function getWindowsStartupSwitches(env = {}, safetyLevel = 0) {
   const level = Number.isFinite(Number(safetyLevel)) && Number(safetyLevel) > 0
     ? Math.floor(Number(safetyLevel))
@@ -70,11 +69,13 @@ function getWindowsStartupSwitches(env = {}, safetyLevel = 0) {
     return ['disable-gpu', 'disable-gpu-compositing'];
   }
   const switches = [];
-  if (level === 0 && env.ELECTRON_INPROCESS_GPU !== '0') {
+  if (level === 0 && env.ELECTRON_INPROCESS_GPU === '1') {
     switches.push('in-process-gpu');
+  } else {
+    switches.push('disable-gpu-sandbox');
   }
   if (level >= 1) {
-    switches.push('disable-gpu-sandbox');
+    switches.push('disable-gpu-compositing');
   }
   if (env.ELECTRON_TRANSPARENT_VISUALS === '1') {
     switches.push('enable-transparent-visuals');

@@ -51,27 +51,30 @@ test('macOS overlay is borderless so its top edge has no hidden title bar that d
   assert.equal(createOverlayChromeOptions('win32', true).roundedCorners, undefined);
 });
 
-test('Windows startup enables in-process GPU so security software cannot kill a separate GPU child process', () => {
-  assert.deepEqual(getWindowsStartupSwitches({}), ['in-process-gpu']);
-  assert.deepEqual(getWindowsStartupSwitches(), ['in-process-gpu']);
+test('Windows startup keeps the GPU in its own process by default (in-process-gpu crashes multi-GPU machines)', () => {
+  assert.deepEqual(getWindowsStartupSwitches({}), ['disable-gpu-sandbox']);
+  assert.deepEqual(getWindowsStartupSwitches(), ['disable-gpu-sandbox']);
+  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '0' }), ['disable-gpu-sandbox']);
 });
 
-test('Windows startup restores a separate GPU process when ELECTRON_INPROCESS_GPU=0', () => {
-  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '0' }), []);
+test('in-process GPU stays available as an explicit opt-in', () => {
+  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '1' }), ['in-process-gpu']);
 });
 
 test('Windows startup keeps the legacy transparent-visuals switch off unless requested', () => {
-  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_TRANSPARENT_VISUALS: '0' }), ['in-process-gpu']);
+  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_TRANSPARENT_VISUALS: '0' }), ['disable-gpu-sandbox']);
   assert.deepEqual(
     getWindowsStartupSwitches({ ELECTRON_TRANSPARENT_VISUALS: '1' }),
-    ['in-process-gpu', 'enable-transparent-visuals'],
+    ['disable-gpu-sandbox', 'enable-transparent-visuals'],
   );
 });
 
-test('startup safety level 1 moves the GPU back to its own unsandboxed process', () => {
-  assert.deepEqual(getWindowsStartupSwitches({}, 1), ['disable-gpu-sandbox']);
-  // 用户已显式关闭 in-process-gpu 时，L1 额外关掉 GPU 沙箱
-  assert.deepEqual(getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '0' }, 1), ['disable-gpu-sandbox']);
+test('startup safety level 1 also turns GPU compositing off', () => {
+  assert.deepEqual(getWindowsStartupSwitches({}, 1), ['disable-gpu-sandbox', 'disable-gpu-compositing']);
+  assert.deepEqual(
+    getWindowsStartupSwitches({ ELECTRON_INPROCESS_GPU: '0' }, 1),
+    ['disable-gpu-sandbox', 'disable-gpu-compositing'],
+  );
 });
 
 test('startup safety level 2 falls back to software rendering', () => {

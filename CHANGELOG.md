@@ -1,5 +1,22 @@
 # 修复日志
 
+## 2026-11-04 - Windows 秒退根因修复（默认关闭 in-process-gpu）+ 本地 Whisper 打包修复 v1.4.5
+
+### 修复
+- **Windows 部分电脑双击后托盘图标一闪、进程消失**：现场 A/B 对照定位到根因——应用此前默认给 Chromium 加 `--in-process-gpu`（原意是防止安全软件结束独立 GPU 子进程）。在 Intel Iris Xe + NVIDIA MX450 + 虚拟显示器驱动（GameViewer Virtual Display Adapter）这类多显卡环境下，把 GPU 放进浏览器主进程后，创建主窗口/透明悬浮窗时整个进程会**原生崩溃**：没有弹窗、没有 JS 报错、事件查看器也没有 AppCrash 记录（被 Crashpad 拦下），表现就是双击后 1 秒内消失。日志停在最后一条 `[shortcut] registered`，即悬浮窗创建前一刻；启动时设 `ELECTRON_INPROCESS_GPU=0` 则一切正常。
+  - **默认改为 GPU 留在独立子进程，并关闭 GPU 沙箱**：GPU 子进程出问题只影响渲染，主进程仍可存活并自动降级，不再有“一个显卡驱动问题带走整个应用”的路径。
+  - 需要旧的进程内 GPU 行为时显式设 `ELECTRON_INPROCESS_GPU=1`；设 `0` 与默认相同。
+  - 启动哨兵保留并调整为：L0 独立 GPU + 关闭沙箱 → L1 再关闭 GPU 合成 → L2 纯软件渲染；稳定运行 10 次后逐级回升。
+  - **悬浮窗预热放回启动哨兵的观察期内**（主窗口显示后 3 秒）：现场证明悬浮窗创建正是崩溃触发点，崩在这里时哨兵未清除，下次启动会自动降级。
+- **打包后端缺少 `filelock._soft`，本地 Whisper 语音识别起不来**：filelock 4.x 在 `__init__` 里条件导入 `._soft`（软件文件锁），Nuitka 依赖扫描漏掉；打包后 huggingface_hub 加载链报 `ModuleNotFoundError: No module named 'filelock._soft'`。Windows/macOS 的 Nuitka 打包脚本显式加 `--include-package=filelock`。
+
+### 测试
+- 桌面端 65 个单元测试通过（更新启动开关默认值与三级降级映射用例）。
+- macOS 真实启动验证：窗口显示、悬浮窗预热、启动稳定判定、正常退出均正常；`kill -9` 后仍能按哨兵自动降级重试。
+- Windows 实机结论来自现场 A/B 对照（默认 vs `ELECTRON_INPROCESS_GPU=0`）。
+
+---
+
 ## 2026-11-04 - Windows 启动秒退自动恢复（启动哨兵 + 日志） v1.4.4
 
 ### 修复

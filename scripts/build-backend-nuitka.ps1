@@ -54,6 +54,9 @@ $nuitkaArgs = @(
     "--include-package-data=tokenizers",
     # 打包环境无系统 CA 证书，certifi 的 cacert.pem 必须随包（packaged_entry 会指向它）
     "--include-package-data=certifi",
+    # filelock 4.x 在 __init__ 里条件导入 ._soft（软件文件锁），Nuitka 依赖扫描会漏掉，
+    # 打包后 huggingface_hub 加载时报 ModuleNotFoundError: filelock._soft，Whisper 起不来
+    "--include-package=filelock",
     # 后端资源（与 PyInstaller spec 的 datas 对齐）
     "--include-data-dir=$(Join-Path $root 'backend\assets')=assets"
 )

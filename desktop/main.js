@@ -140,11 +140,12 @@ logger.logStartupContext({
 // 而非 Win10 2004+ 才支持的「直接从屏幕捕获中排除」(WDA_EXCLUDEFROMCAPTURE)，
 // 后者才是真正的屏幕共享隐身。
 // 如个别老 Win7/Win8 设备透明窗口出现渲染异常，可设环境变量 ELECTRON_DISABLE_HW_ACCEL=1 回退。
-// 默认启用进程内 GPU (in-process-gpu): 从下载目录 / 受管控目录启动时, 系统安全策略或
-// 安全软件会终止独立 GPU 子进程 (日志: "GPU process exited unexpectedly:
-// exit_code=-2147483645" / "GPU process isn't usable. Goodbye."), 界面因此不出现。
-// 进程内 GPU 不再派生该子进程, 同时保留透明浮窗与 setContentProtection 所需的硬件加速。
-// 个别显卡驱动在进程内 GPU 下渲染异常时, 可设环境变量 ELECTRON_INPROCESS_GPU=0 回退。
+// 默认把 GPU 留在独立子进程（并关闭 GPU 沙箱）：现场 A/B 证实默认的
+// --in-process-gpu 在 Intel Iris Xe + NVIDIA MX450 + 虚拟显示器驱动这类多显卡
+// 环境里，创建主窗口/透明悬浮窗时会让整个主进程原生崩溃（无弹窗、无日志、
+// 1 秒内消失）。独立 GPU 子进程即使被安全软件结束也只是渲染降级，主进程还活着，
+// 配合 child-process-gone 监听可自动切到软件渲染重启。
+// 需要旧行为时显式设 ELECTRON_INPROCESS_GPU=1。
 // 旧版透明视觉兼容开关 (enable-transparent-visuals) 默认关闭: 部分 Windows 图形栈下
 // 它会连累渲染进程崩溃 (日志: "Renderer process crashed" /
 // "eglCreateWindowSurface failed with error EGL_BAD_ALLOC" /
@@ -223,7 +224,7 @@ function noteStartupCrash(kind, details) {
   }, 200);
 }
 
-/** 主窗口显示并稳定一段时间后再预热悬浮窗，避免启动瞬间创建两个 GPU 表面 */
+/** 主窗口显示后稍等片刻再预热悬浮窗：启动瞬间只创建一个 GPU 表面，同时崩溃仍落在启动哨兵窗口内 */
 function scheduleOverlayPreheat() {
   if (overlayPreheatTimer) return;
   overlayPreheatTimer = setTimeout(() => {
@@ -580,6 +581,10 @@ function createWindow() {
     }
     mainWindow.show();
     console.log('[startup] main window shown');
+    // 悬浮窗预热必须留在“启动稳定判定”之前：现场发现透明悬浮窗的创建正是
+    // 某些显卡驱动崩溃的触发点，崩在这里要让哨兵看到（pendingAttempt 尚未清除），
+    // 下次启动才会自动降级。
+    scheduleOverlayPreheat();
     // 窗口显示后继续观察一段时间再判定启动成功：显卡驱动/安全软件造成的退出
     // 往往发生在首帧渲染后的几秒内。
     setTimeout(() => {
@@ -587,7 +592,6 @@ function createWindow() {
       startupStable = true;
       const state = markStartupStable(USER_DATA_DIR);
       console.log(`[startup] startup stable (safety level ${state.level})`);
-      scheduleOverlayPreheat();
     }, STARTUP_STABLE_DELAY_MS);
   });
 
@@ -1927,8 +1931,8 @@ async function startApp() {
   } catch (error) {
     console.error('registerUpdater failed:', error?.message || error);
   }
-  // 悬浮窗预热推迟到主窗口稳定之后（见 scheduleOverlayPreheat），
-  // 启动瞬间只创建一个 GPU 表面，减少脆弱图形栈上的崩溃概率。
+  // 悬浮窗预热在窗口显示后 3 秒触发（见 scheduleOverlayPreheat），
+  // 启动瞬间只创建一个 GPU 表面，且崩溃仍发生在启动哨兵的观察期内。
 }
 
 /** Windows 10 1809 以下 / Win7/Win8 不在 Electron 41 的支持范围内，明确提示 */
