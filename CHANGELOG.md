@@ -1,5 +1,17 @@
 # 修复日志
 
+## 2026-11-05 - 发布流水线修复：Windows 可先发版 v1.4.7
+
+### 说明
+- GitHub Actions 的 macOS runner 连续多次拿不到机器（`The job was not acquired by Runner of type hosted even after multiple attempts`），而发布任务原先要求 Windows 和 macOS 都构建成功，导致 1.4.4–1.4.6 的 Release 一个都没发出来（其中 Windows 构建本身是成功的）。
+- 发布任务改为：Windows 成功即可发布；macOS 产物缺失时先标成 pre-release（应用内更新只读 latest，不会把 Mac 用户引向一个没有 dmg 的版本）。等 macOS 构建恢复后重跑，发布任务会幂等补传 dmg 并去掉 pre-release。
+- **1.4.7 的应用代码与 1.4.6 完全相同**，包含此前所有修复：Windows 默认关闭 in-process-gpu（1.4.5，秒退根因）、filelock 子模块（1.4.5）、soundcard 数据文件与 `--check-audio` 诊断（1.4.6）。
+
+### 测试
+- 本次只改 CI 工作流与版本号；桌面端与后端既有测试未受影响。
+
+---
+
 ## 2026-11-04 - Windows 系统音频检测修复（soundcard 打包缺数据文件） v1.4.6
 
 ### 修复
