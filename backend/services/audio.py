@@ -45,8 +45,14 @@ class AudioBusyError(RuntimeError):
 try:
     import soundcard as _sc
     _HAS_SC = True
-except Exception:
+except Exception as exc:
+    # 别在 Windows 上静默：打包漏文件（如 soundcard 的 .h 声明）时，这里吞掉的
+    # 异常正是设置页「未检测到系统音频输出设备」的唯一线索。macOS 不用 soundcard。
     _HAS_SC = False
+    if platform.system() == "Windows":
+        _alog.warning("soundcard 导入失败，系统音频回环不可用: %s: %s", type(exc).__name__, exc)
+    else:
+        _alog.debug("soundcard 未安装（本平台不需要）: %s", exc)
 
 # Stable mapping: integer device_id (20000+N) -> soundcard speaker GUID
 # Populated by list_devices(); used by start() to find the right device.
@@ -115,8 +121,8 @@ def _get_sc_loopback_devices() -> list[dict]:
                 "host_api": "WASAPI (soundcard)",
                 "is_default_output": is_default,
             })
-    except Exception:
-        pass
+    except Exception as exc:
+        _alog.warning("枚举 soundcard 系统音频设备失败: %s: %s", type(exc).__name__, exc)
     if next_map:
         _SC_ID_MAP.clear()
         _SC_ID_MAP.update(next_map)
@@ -311,10 +317,15 @@ class AudioCapture:
             info["has_loopback"] = has_loopback
             if not has_loopback:
                 info["needs_virtual_device"] = True
+                _alog.warning(
+                    "Windows 未检测到系统音频回环设备 (soundcard_available=%s)",
+                    _HAS_SC,
+                )
                 info["instructions"] = (
                     "⚠️ 未检测到系统音频输出设备！\n\n"
-                    "请安装 soundcard：\n"
-                    "  pip install soundcard"
+                    "请确认电脑有可用的扬声器/耳机，且 Windows 声音服务运行正常；\n"
+                    "远程桌面或虚拟显示器环境下，请先启用本地音频输出。\n\n"
+                    "若仍无法识别，请把日志目录里的音频报错发给开发者。"
                 )
         return info
 

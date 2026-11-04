@@ -73,10 +73,15 @@ foreach ($entry in $nativeDirs) {
     }
 }
 # Nuitka 内置 sounddevice 配置在 Windows x64 上只带 libportaudio64bit*.dll，无需额外处理
-# soundcard 是 Windows 专用系统音频库，装了才带
+# soundcard 是 Windows 专用系统音频库，装了才带。
+# 注意：soundcard 在 import 时用 open() 读取包内的 mediafoundation.py.h（CFFI 声明），
+# 只加 --include-module 不会带上 .h 数据文件，打包后 import 直接抛 FileNotFoundError，
+# 被 audio.py 的 try/except 吞掉 → 系统音频回环设备为空（设置页提示"未检测到系统音频输出设备"）。
+# 必须同时 include-package 和 include-package-data。
 & $pythonExe -c "import soundcard" 2>$null
 if ($LASTEXITCODE -eq 0) {
-    $nuitkaArgs += "--include-module=soundcard"
+    $nuitkaArgs += "--include-package=soundcard"
+    $nuitkaArgs += "--include-package-data=soundcard"
 }
 
 Invoke-Step "编译后端（Nuitka standalone，首次约需几十分钟）" {

@@ -1,5 +1,21 @@
 # 修复日志
 
+## 2026-11-04 - Windows 系统音频检测修复（soundcard 打包缺数据文件） v1.4.6
+
+### 修复
+- **Windows 设置页提示「未检测到系统音频输出设备」、系统音频（回环）不可用**：打包时只带了 `soundcard` 的 Python 模块，没带它 import 时用 `open()` 读取的 CFFI 声明文件（`mediafoundation.py.h`）。打包后 `import soundcard` 抛 `FileNotFoundError`，被 `audio.py` 的 try/except 静默吞掉，扬声器/回环设备列表因此为空，前端提示「请安装 soundcard」——对安装版用户既看不懂也不适用。
+  - Nuitka 打包脚本（Windows/macOS）改为 `--include-package=soundcard --include-package-data=soundcard`，把 `.h` 声明随包带上。
+  - `audio.py` 不再静默吞异常：Windows 上把 soundcard 导入/枚举失败写进后端日志。
+  - 新增诊断命令：`interview-assistant-backend.exe --check-audio`，直接打印 soundcard 版本、扬声器列表和真实报错，便于现场排查。
+  - 设置页提示改为用户可操作的文案（检查扬声器/声音服务、远程桌面先启用本地音频输出）。
+- 本条与 1.4.5 的 GPU 修复相互独立，1.4.6 同时包含两者。
+
+### 测试
+- 后端打包测试新增 3 个用例（Nuitka 必须带 filelock 子模块、soundcard 数据文件；`--check-audio` 输出 JSON），5 个测试通过；ruff 通过。
+- 已核对 soundcard 源码确认 import 期依赖包内 `.h` 文件；Windows 打包产物需等 CI 构建后实测。
+
+---
+
 ## 2026-11-04 - Windows 秒退根因修复（默认关闭 in-process-gpu）+ 本地 Whisper 打包修复 v1.4.5
 
 ### 修复

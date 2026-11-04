@@ -83,9 +83,12 @@ restore_dlls() {
   done
 }
 trap restore_dlls EXIT
-# soundcard 是 Windows 专用系统音频库，装了才带
+# soundcard 是 Windows 专用系统音频库，装了才带。
+# soundcard 在 import 时用 open() 读取包内的 mediafoundation.py.h（CFFI 声明），
+# 只加 --include-module 不会带上 .h 数据文件，打包后 import 直接抛 FileNotFoundError，
+# 被 audio.py 的 try/except 吞掉 → 系统音频回环设备为空。必须同时带 package data。
 if "$PYTHON" -c 'import soundcard' >/dev/null 2>&1; then
-  ARGS+=(--include-module=soundcard)
+  ARGS+=(--include-package=soundcard --include-package-data=soundcard)
 fi
 
 step "编译后端（Nuitka standalone，首次约需几十分钟）"

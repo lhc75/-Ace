@@ -42,6 +42,40 @@ def _port() -> int:
     return _int_env("PORT", 18080)
 
 
+def _check_audio() -> None:
+    """--check-audio：打印 soundcard 导入与系统扬声器枚举结果，供现场排查。
+
+    打包后系统音频依赖（soundcard 及其 .h 数据文件）缺失时，audio.py 的
+    try/except 会让设备列表静默为空；用这个命令可以直接看到真实报错。
+    """
+    import json
+    import traceback
+
+    result = {
+        "platform": sys.platform,
+        "soundcard_version": None,
+        "speakers": [],
+        "default_speaker": None,
+        "error": None,
+    }
+    try:
+        from importlib import metadata
+
+        result["soundcard_version"] = metadata.version("soundcard")
+    except Exception:
+        pass
+    try:
+        import soundcard
+
+        speakers = list(soundcard.all_speakers())
+        result["speakers"] = [getattr(spk, "name", str(spk)) for spk in speakers]
+        result["default_speaker"] = getattr(soundcard.default_speaker(), "name", None)
+    except Exception as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        result["traceback"] = traceback.format_exc()
+    print(json.dumps(result, indent=2))
+
+
 def main() -> None:
     _ensure_ca_certs()
     if len(sys.argv) > 1 and sys.argv[1] == "--capture-worker":
@@ -50,6 +84,9 @@ def main() -> None:
         from services.capture._screen_capture_worker import main as capture_main
 
         capture_main()
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "--check-audio":
+        _check_audio()
         return
 
     import uvicorn
