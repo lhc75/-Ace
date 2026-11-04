@@ -32,6 +32,59 @@
 
 > 本仓库仅托管后端源码；前端与桌面端源码未公开，开箱即用的完整应用请从 Releases 下载。
 
+## 安装后第一步：在客户端里配置 API
+
+装好客户端后要先配两样东西：**答题用的大语言模型**和**听面试官说话的语音识别模型**。下面是精简步骤，每一步的截图、字段说明和报错处理见 **[客户端 API 配置指南](docs/客户端API配置.md)**。
+
+> **推荐组合**：答题模型用 DeepSeek `deepseek-chat`；语音识别用**阿里千问实时识别 `qwen-audio-3.1-asr-flash-streaming`**，并打开「面试官实时流式转写」。
+
+### 准备两个 API Key
+
+| 用途 | 申请地址 |
+| --- | --- |
+| 答题模型（DeepSeek） | <https://platform.deepseek.com/api_keys> |
+| 语音识别（阿里千问实时识别） | 千问 AI 平台：<https://platform.qianwenai.com/home/api-keys>（不是阿里云百炼控制台的 Key） |
+
+### 一、配置答题大模型（设置 → 模型）
+
+1. 点击客户端左下角 **设置**，左侧选 **模型**，点右上角 **添加**。
+2. 展开新卡片，填写四个字段：
+
+   | 字段 | DeepSeek 示例 |
+   | --- | --- |
+   | 模型名称 * | `DeepSeek-V3`（随便起） |
+   | Model ID | `deepseek-chat` |
+   | API Base URL | `https://api.deepseek.com` |
+   | API Key | 你的 `sk-` Key |
+
+   ![填写模型字段](docs/screenshots/client-config/03-model-fields.png)
+
+3. 点 **保存并测试**，提示「连接可用」即成功；再点 **保存模型队列**。
+
+其他厂商的 Base URL：千问 AI 平台 `https://maas.qianwenaiapi.com/compatible-mode/v1`、阿里云百炼 `https://dashscope.aliyuncs.com/compatible-mode/v1`、OpenAI `https://api.openai.com/v1`。Base URL 只写到版本号，不要带 `/chat/completions`。
+
+### 二、配置语音识别（设置 → 语音）
+
+1. 左侧选 **语音**，在「主链路 ASR」里点 **阿里千问** 卡片。
+
+   ![选择阿里千问](docs/screenshots/client-config/06-speech-engine.png)
+
+2. 填写并开启：
+
+   | 字段 | 填什么 |
+   | --- | --- |
+   | 阿里千问 API Key | 千问 AI 平台的 Key（`sk-ws-` 开头） |
+   | 千问实时识别模型 | `qwen-audio-3.1-asr-flash-streaming` |
+   | 面试官实时流式转写 | 勾选，显示「已开启」 |
+
+   ![填写千问配置](docs/screenshots/client-config/08-aliyun-fields.png)
+
+3. 点 **保存并测试**，提示「阿里千问 主引擎测试成功」即成功；最后滚到页面底部点 **保存语音配置**。
+
+识别地址 `wss://maas.qianwenaiapi.com/api-ws/v1/inference` 已内置在程序里，不用填。公司网络有防火墙时需放行 `maas.qianwenaiapi.com:443`。
+
+配置完成后回到主界面，先点 **开始检测** 跑一遍链路检测，全部通过后点 **开始面试**。
+
 ## 为什么值得试
 
 > 不是"问答玩具"，而是围绕技术面试现场节奏设计的完整链路：听题 → 识别问题 → 生成答案 → 引用你的笔记 → 记录你的回答 → 面试后复盘沉淀。桌面端把共享隐身和悬浮窗纳入主流程，面试之外还能管理简历、JD 和 Offer。
