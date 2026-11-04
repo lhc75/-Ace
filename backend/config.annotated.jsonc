@@ -58,8 +58,13 @@
   "doubao_stt_resource_id": "volc.seedasr.sauc.duration",
   "doubao_stt_boosting_table_id": "",
 
-  // 阿里千问实时 ASR：使用千问平台 API Key；模型名称可手动填写，须兼容千问实时 ASR 协议。
+  // 阿里千问实时 ASR（推荐引擎）。只有 stt_provider=aliyun 或 candidate_stt_provider=aliyun 时生效。
+  // API Key 在千问 AI 平台申请：https://platform.qianwenai.com/home/api-keys
+  // 注意不是阿里云百炼控制台（dashscope）的 Key。接口地址内置为
+  // wss://maas.qianwenaiapi.com/api-ws/v1/inference，无需填写。
   "aliyun_stt_api_key": "",
+  // 推荐 qwen-audio-3.1-asr-flash-streaming；备选 qwen-audio-3.0-asr-flash-streaming。
+  // 也可手动填写其他名称，但须兼容千问实时 ASR 的 run-task WebSocket 协议。
   "aliyun_stt_model": "qwen-audio-3.1-asr-flash-streaming",
 
   // 当前使用服务器上的 FunASR。

@@ -221,12 +221,12 @@ cp backend/config.example.json backend/config.json
 
 ### 3. 配置语音识别（STT）
 
-四选一（完整桌面版的图形界面里可直接切换；纯后端运行时编辑 `config.json`）：
+四选一（完整桌面版的图形界面里可直接切换；纯后端运行时编辑 `config.json`）。桌面客户端里每个字段怎么填、Key 去哪申请，见 **[客户端 API 配置指南](docs/客户端API配置.md)**。
 
 | 引擎 | 说明 | 需要什么 |
 | --- | --- | --- |
+| **阿里千问流式（推荐）** | 真·服务端流式，边说边出字体验最好 | [千问 AI 平台](https://platform.qianwenai.com/home/api-keys) API Key + 模型 `qwen-audio-3.1-asr-flash-streaming` |
 | **Whisper（本地）** | 默认。首次使用自动下载模型，断网可用 | 无 Key；模型大小可选 tiny→large-v3 |
-| **阿里千问流式** | 真·服务端流式，边说边出字体验最好 | 百炼 API Key + 模型 `qwen-audio-3.1-asr-flash-streaming` |
 | **豆包（火山引擎）** | 流式识别 | 火山引擎语音服务凭证 |
 | **通用 ASR** | 接你自己部署或第三方兼容服务 | 见下方部署要求 |
 
