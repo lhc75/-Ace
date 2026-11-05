@@ -1,0 +1,164 @@
+// userData 目录迁移。
+//
+// 背景：1.4.3 及更早版本的 Electron userData 目录取自 package.json 的 name
+// （interview-assistant-desktop），因为 app.setName() 直到 ready 之后才调用，
+// 此时 userData 路径已经固定。1.4.4 把 setName 提前到 ready 之前，目录变成
+// 展示名（面试Ace），老配置就“消失”了。
+//
+// 这里在新目录还没有真实配置（不存在 config.json，或它仍是 config.example.json
+// 的原样拷贝）时，把旧目录的数据一次性搬过来；已有真实配置则完全不动。
+// 旧目录保留不删，出问题还能手工找回。
+//
+// 纯 node 模块，便于单元测试。
+
+const fs = require('fs');
+const path = require('path');
+
+/** 1.4.3 及更早版本实际使用的 userData 目录名（package.json name） */
+const LEGACY_DIR_NAMES = ['interview-assistant-desktop'];
+
+// 重新生成即可的大缓存/日志，不迁移；Chromium 自身的 profile 内部状态也不搬
+// （旧版可能用的 Electron 版本不同，搬过去没有好处）。真正属于用户的数据——配置、
+// 数据库、Local Storage 里的界面偏好——都会保留。
+const SKIP_ENTRIES = new Set([
+  'logs',
+  'log',
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnGraphiteCache',
+  'DawnWebGPUCache',
+  'DawnWebGPUInfoCache',
+  'ShaderCache',
+  'GrShaderCache',
+  'Crashpad',
+  'blob_storage',
+  'Service Worker',
+  'Local State',
+  'Preferences',
+  'Cookies',
+  'Cookies-journal',
+  'Network Persistent State',
+  'TransportSecurity',
+  'DIPS',
+  'Trust Tokens',
+  'Trust Tokens-journal',
+  'SharedStorage',
+  'Session Storage',
+  'DevToolsActivePort',
+  'SingletonLock',
+  'SingletonCookie',
+  'SingletonSocket',
+]);
+
+function safeRead(p) {
+  try {
+    return fs.readFileSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** 新目录里的 config.json 是否只是首次启动时从 config.example.json 拷贝的模板 */
+function isExampleConfig(configPath, exampleConfigPath) {
+  const current = safeRead(configPath);
+  if (current === null) return true; // 没有配置：视作可迁移
+  const example = exampleConfigPath ? safeRead(exampleConfigPath) : null;
+  if (example) return current.equals(example);
+  // 没有 example 文件时退化为占位符判断
+  try {
+    const parsed = JSON.parse(current.toString('utf8'));
+    const models = Array.isArray(parsed?.models) ? parsed.models : [];
+    if (models.length === 0) return true;
+    return models.every((m) => (
+      m && (m.name === 'Example-Model' || m.api_key === 'YOUR_API_KEY_HERE')
+    ));
+  } catch {
+    return false; // 解析不了就当作用户数据，别覆盖
+  }
+}
+
+/** 是否需要迁移：旧目录有真实配置，且新目录还没有真实配置 */
+function shouldMigrate({ legacyDir, newUserDataDir, exampleConfigPath }) {
+  const legacyConfig = path.join(legacyDir, 'config.json');
+  if (!fs.existsSync(legacyConfig)) return false;
+  return isExampleConfig(path.join(newUserDataDir, 'config.json'), exampleConfigPath);
+}
+
+/** 迁移前把新目录里可能存在的少量状态文件备份到 appData/<name>.pre-migration-<时间> */
+function backupCurrentState(newUserDataDir, backupDir) {
+  const entries = ['config.json', 'shortcuts.json', 'overlay-window.json', 'update-state.json', 'data', 'Local Storage'];
+  let copied = 0;
+  for (const name of entries) {
+    const src = path.join(newUserDataDir, name);
+    if (!fs.existsSync(src)) continue;
+    try {
+      fs.cpSync(src, path.join(backupDir, name), { recursive: true, force: true });
+      copied += 1;
+    } catch {
+      /* 备份失败不阻断迁移 */
+    }
+  }
+  return copied > 0 ? backupDir : null;
+}
+
+/**
+ * 把 legacyDir 的内容搬进 newUserDataDir。
+ * 返回 { migrated, from, to, backupDir, errors }。
+ */
+function migrateLegacyUserData({
+  appDataDir,
+  newUserDataDir,
+  exampleConfigPath = null,
+  legacyNames = LEGACY_DIR_NAMES,
+  now = new Date(),
+} = {}) {
+  if (!appDataDir || !newUserDataDir) return { migrated: false, errors: [] };
+  const newDirName = path.basename(newUserDataDir);
+  for (const legacyName of legacyNames) {
+    if (legacyName === newDirName) continue;
+    const legacyDir = path.join(appDataDir, legacyName);
+    if (!shouldMigrate({ legacyDir, newUserDataDir, exampleConfigPath })) continue;
+
+    const stamp = now.toISOString().replace(/[:.]/g, '-');
+    const backupDir = path.join(appDataDir, `${newDirName}.pre-migration-${stamp}`);
+    let backup = null;
+    try {
+      backup = backupCurrentState(newUserDataDir, backupDir);
+    } catch {
+      backup = null;
+    }
+
+    const errors = [];
+    let entries = [];
+    try {
+      entries = fs.readdirSync(legacyDir);
+    } catch (error) {
+      errors.push(`${legacyDir}: ${error.message}`);
+    }
+    for (const name of entries) {
+      if (SKIP_ENTRIES.has(name)) continue;
+      try {
+        fs.mkdirSync(newUserDataDir, { recursive: true });
+        fs.cpSync(path.join(legacyDir, name), path.join(newUserDataDir, name), {
+          recursive: true,
+          force: true,
+          errorOnExist: false,
+        });
+      } catch (error) {
+        // 旧进程仍占用文件时可能失败：记录后继续搬其它条目
+        errors.push(`${name}: ${error.message}`);
+      }
+    }
+    return { migrated: true, from: legacyDir, to: newUserDataDir, backupDir: backup, errors };
+  }
+  return { migrated: false, errors: [] };
+}
+
+module.exports = {
+  LEGACY_DIR_NAMES,
+  SKIP_ENTRIES,
+  isExampleConfig,
+  migrateLegacyUserData,
+  shouldMigrate,
+};

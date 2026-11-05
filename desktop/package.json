@@ -33,6 +33,7 @@
       "startupSafety.js",
       "appLogger.js",
       "windowsInstaller.js",
+      "userDataMigration.js",
       "app-title.json",
       "icon.png",
       "package.json",

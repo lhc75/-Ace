@@ -69,6 +69,7 @@ const {
   shouldDisableHardwareAcceleration,
 } = require('./startupSafety');
 const { initFileLogger } = require('./appLogger');
+const { migrateLegacyUserData } = require('./userDataMigration');
 
 const pkg = require('./package.json');
 
@@ -103,6 +104,19 @@ try {
 }
 const USER_DATA_DIR = app.getPath('userData');
 
+// 1.4.4 起 userData 目录从 interview-assistant-desktop 变成了展示名（面试Ace）：
+// 旧版在 ready 之后才 setName，目录已经按 package.json name 固定。老用户的配置、
+// 知识库、复盘数据都还在旧目录里，首次启动时一次性搬过来（新目录已有真实配置则不碰）。
+const userDataMigration = migrateLegacyUserData({
+  appDataDir: app.getPath('appData'),
+  newUserDataDir: USER_DATA_DIR,
+  exampleConfigPath: path.join(
+    app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..'),
+    'backend',
+    'config.example.json',
+  ),
+});
+
 /** 出错时告诉用户日志在哪：桌面日志 + 后端日志（同目录的 log/ 下） */
 function logPathsText() {
   return `${logPathsText()}\n后端日志：${path.join(USER_DATA_DIR, 'log')}`;
@@ -111,6 +125,16 @@ function logPathsText() {
 // 桌面日志：打包后的 Windows 应用没有控制台，启动阶段被系统/驱动/安全软件杀掉时
 // 用户看不到任何信息。同步写盘，崩溃前的最后一行一定能留下。
 const logger = initFileLogger({ dir: USER_DATA_DIR });
+
+if (userDataMigration.migrated) {
+  logger.warn(
+    `[startup] 已从旧配置目录迁移数据: ${userDataMigration.from} -> ${userDataMigration.to}`
+      + (userDataMigration.backupDir ? `（迁移前的新目录状态备份: ${userDataMigration.backupDir}）` : ''),
+  );
+  if (userDataMigration.errors.length > 0) {
+    logger.warn(`[startup] 迁移时有文件失败（旧目录仍保留可手工拷贝）: ${userDataMigration.errors.join('; ')}`);
+  }
+}
 
 // 启动哨兵：上次启动如果在窗口稳定显示前就消失了（Windows 上表现为托盘一闪而过），
 // 本次自动降一级图形栈再试。详见 startupSafety.js。
