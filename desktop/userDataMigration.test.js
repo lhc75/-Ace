@@ -5,8 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  USER_DATA_DIR_NAME,
   isExampleConfig,
   migrateLegacyUserData,
+  resolveUserDataDir,
   shouldMigrate,
 } = require('./userDataMigration');
 
@@ -128,4 +130,19 @@ test('旧目录保持原样，不做删除', () => {
   const { appData, legacy, current, example } = setup();
   migrateLegacyUserData({ appDataDir: appData, newUserDataDir: current, exampleConfigPath: example });
   assert.equal(fs.readFileSync(path.join(legacy, 'config.json'), 'utf8'), REAL);
+});
+
+test('用户数据目录固定与展示名解耦，且常量不可随意更改', () => {
+  // 这个断言是防呆：改目录名等于所有老用户配置丢失，必须同时补迁移逻辑。
+  assert.equal(USER_DATA_DIR_NAME, '面试Ace');
+  assert.equal(resolveUserDataDir({ appDataDir: '/appdata' }), path.join('/appdata', '面试Ace'));
+  assert.equal(
+    resolveUserDataDir({ appDataDir: '/appdata', override: '/tmp/test-profile' }),
+    path.resolve('/tmp/test-profile'),
+  );
+  assert.equal(
+    resolveUserDataDir({ appDataDir: '/appdata', override: 'relative-dir' }),
+    path.resolve('relative-dir'),
+  );
+  assert.throws(() => resolveUserDataDir({}), /appDataDir/);
 });

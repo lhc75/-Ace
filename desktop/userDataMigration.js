@@ -14,6 +14,14 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * 用户数据目录名：**永远不要再改**。
+ * 改这个名字 = 所有用户升级后配置“消失”（1.4.4 的事故就是这么来的）。
+ * 展示名（窗口标题/托盘）可以改，数据目录必须保持不变；main.js 会显式
+ * app.setPath('userData', ...) 固定它，不再依赖 app.getName()。
+ */
+const USER_DATA_DIR_NAME = '面试Ace';
+
 /** 1.4.3 及更早版本实际使用的 userData 目录名（package.json name） */
 const LEGACY_DIR_NAMES = ['interview-assistant-desktop'];
 
@@ -155,10 +163,23 @@ function migrateLegacyUserData({
   return { migrated: false, errors: [] };
 }
 
+/**
+ * 计算 userData 目录。默认固定为 <appData>/面试Ace，与应用展示名完全解耦；
+ * 开发/测试可用 IA_USER_DATA_DIR 显式指定其它目录，避免污染真实数据。
+ */
+function resolveUserDataDir({ appDataDir, override = null, dirName = USER_DATA_DIR_NAME } = {}) {
+  if (!appDataDir) throw new Error('resolveUserDataDir 需要 appDataDir');
+  const trimmed = typeof override === 'string' ? override.trim() : '';
+  if (trimmed) return path.resolve(trimmed);
+  return path.join(appDataDir, dirName);
+}
+
 module.exports = {
   LEGACY_DIR_NAMES,
   SKIP_ENTRIES,
+  USER_DATA_DIR_NAME,
   isExampleConfig,
   migrateLegacyUserData,
+  resolveUserDataDir,
   shouldMigrate,
 };

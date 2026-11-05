@@ -69,7 +69,7 @@ const {
   shouldDisableHardwareAcceleration,
 } = require('./startupSafety');
 const { initFileLogger } = require('./appLogger');
-const { migrateLegacyUserData } = require('./userDataMigration');
+const { migrateLegacyUserData, resolveUserDataDir } = require('./userDataMigration');
 
 const pkg = require('./package.json');
 
@@ -95,14 +95,26 @@ function loadAppDisplayName() {
 
 const APP_DISPLAY_NAME = loadAppDisplayName();
 
-// 名字必须在任何 getPath('userData') 之前定下来：userData 目录名由 app name 决定，
-// 晚设置会让配置/日志落到另一个目录（老用户的设置会“丢失”）。
+// 展示名只影响窗口标题/托盘；用户数据目录由下面的 app.setPath('userData') 显式固定，
+// 不再依赖 app.getName()，所以改名不会让配置目录跟着漂移。
 try {
   app.setName(APP_DISPLAY_NAME);
 } catch {
   /* 个别平台/版本可能不支持 */
 }
-const USER_DATA_DIR = app.getPath('userData');
+// 用户数据目录显式固定为 <appData>/面试Ace，与展示名彻底解耦。
+// 以前它跟着 app.getName() 走：1.4.4 把 setName 提前，目录从
+// interview-assistant-desktop 变成 面试Ace，老用户配置因此“消失”。
+// 以后换展示名/品牌名都不会再影响数据目录。开发测试用 IA_USER_DATA_DIR 覆盖。
+const USER_DATA_DIR = resolveUserDataDir({
+  appDataDir: app.getPath('appData'),
+  override: process.env.IA_USER_DATA_DIR,
+});
+try {
+  app.setPath('userData', USER_DATA_DIR);
+} catch (error) {
+  console.warn('setPath(userData) failed, falling back to app default:', error?.message || error);
+}
 
 // 1.4.4 起 userData 目录从 interview-assistant-desktop 变成了展示名（面试Ace）：
 // 旧版在 ready 之后才 setName，目录已经按 package.json name 固定。老用户的配置、
