@@ -2,7 +2,7 @@
 // 用户确认后下载 dmg 并自动安装: 挂载镜像 → ditto 覆盖 .app → relaunch 重启。
 // 自动安装失败(权限/非常规安装位置)时回退「打开 dmg 手动拖装」。
 const { app, ipcMain, shell, net } = require('electron');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -14,6 +14,12 @@ const {
   compareVersions,
   parseHdiutilMountPoint,
 } = require('./updateCore');
+const {
+  buildInstallHelperScript,
+  helperLogPath,
+  helperScriptPath,
+  isPortableInstall,
+} = require('./windowsInstaller');
 
 const AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 自动检查间隔 6 小时
 const STARTUP_CHECK_DELAY_MS = 8 * 1000;
@@ -128,7 +134,8 @@ async function checkForUpdates({ manual = false } = {}) {
       phase: 'available',
       version: release.version,
       notes: release.notes,
-      plan: resolveDownloadPlan(release, '面试Ace'),
+      plan: resolveDownloadPlan(release, '面试Ace', process.platform),
+      platform: process.platform,
       pageUrl: source.releasesPage,
     });
   } catch (error) {
@@ -187,7 +194,15 @@ function downloadUpdate(plan, version) {
         } else {
           file.end(() => {
             downloading = false;
-            emit({ phase: 'ready', version, percent: 100, dmgPath: targetPath });
+            emit({
+              phase: 'ready',
+              version,
+              percent: 100,
+              installerPath: targetPath,
+              // 兼容旧字段名（macOS dmg），Windows 安装包同样放这里
+              dmgPath: targetPath,
+              platform: process.platform,
+            });
           });
         }
       });
@@ -257,6 +272,39 @@ async function installFromDmg(dmgPath) {
   }
 }
 
+/**
+ * Windows：用下载好的 NSIS 安装包静默完成原地升级。
+ * 安装前应用必须退出，所以写一个 detached PowerShell 助手：等待本进程退出 →
+ * 运行安装包 /S（安装包会从注册表读取上次安装目录）→ 重新拉起应用。
+ * 助手脚本与日志留在 userData 下，安装失败可从 update-install.log 排查。
+ */
+function installFromExe(exePath) {
+  if (process.platform !== 'win32') throw new Error('仅 Windows 支持可执行安装包');
+  if (typeof exePath !== 'string' || !/\.exe$/i.test(exePath) || !fs.existsSync(exePath)) {
+    throw new Error('安装包不存在');
+  }
+  if (isPortableInstall(process.env)) {
+    throw new Error('便携版不支持自动覆盖安装，请打开安装包手动安装');
+  }
+  const userDataDir = app.getPath('userData');
+  const scriptPath = helperScriptPath(userDataDir);
+  // 带 UTF-8 BOM：Windows PowerShell 5.1 对无 BOM 的 .ps1 按 ANSI 解码，
+  // 安装路径里的中文（如 面试Ace）会被读坏。
+  fs.writeFileSync(scriptPath, '\uFEFF' + buildInstallHelperScript({
+    pid: process.pid,
+    installerPath: exePath,
+    appExePath: app.getPath('exe'),
+    logPath: helperLogPath(userDataDir),
+  }), 'utf8');
+  const helper = spawn(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', scriptPath],
+    { detached: true, stdio: 'ignore', windowsHide: true },
+  );
+  helper.unref();
+  return { scriptPath };
+}
+
 function registerUpdater(mainWindow) {
   mainWindowRef = mainWindow;
   stateFilePath = path.join(app.getPath('userData'), 'update-state.json');
@@ -265,13 +313,23 @@ function registerUpdater(mainWindow) {
   ipcMain.handle('update-check', (_event, opts = {}) => { void checkForUpdates({ manual: Boolean(opts.manual) }); });
   ipcMain.handle('update-download', (_event, payload = {}) => downloadUpdate(payload.plan, payload.version));
   ipcMain.handle('update-install', async (_event, payload = {}) => {
-    const dmgPath = typeof payload === 'string' ? payload : payload.dmgPath;
+    const installerPath = typeof payload === 'string'
+      ? payload
+      : (payload.installerPath || payload.dmgPath);
     const version = typeof payload === 'object' && payload ? payload.version : undefined;
     try {
-      emit({ phase: 'installing' });
-      await installFromDmg(dmgPath);
+      emit({ phase: 'installing', version, platform: process.platform });
+      if (process.platform === 'win32') {
+        installFromExe(installerPath);
+        downloading = false;
+        emit({ phase: 'restarting', version, platform: process.platform });
+        // 退出应用；助手会等本进程结束后静默安装，再重新拉起
+        setTimeout(() => { app.quit(); }, 500);
+        return { ok: true };
+      }
+      await installFromDmg(installerPath);
       downloading = false;
-      emit({ phase: 'restarting' });
+      emit({ phase: 'restarting', version, platform: process.platform });
       // 先标记重启再退出; quit 会走 main.js before-quit 的优雅停机(停后端)
       setTimeout(() => {
         app.relaunch();
@@ -282,13 +340,24 @@ function registerUpdater(mainWindow) {
       downloading = false;
       const message = error?.message || String(error);
       // 回到 ready 卡片并带上错误, 前端可再尝试或改用手动安装
-      emit({ phase: 'ready', version, dmgPath, error: message });
+      emit({
+        phase: 'ready',
+        version,
+        installerPath,
+        dmgPath: installerPath,
+        platform: process.platform,
+        error: message,
+      });
       return { ok: false, error: message };
     }
   });
-  ipcMain.handle('update-open-installer', (_event, dmgPath) => {
-    if (typeof dmgPath === 'string' && dmgPath.endsWith('.dmg') && fs.existsSync(dmgPath)) {
-      return shell.openPath(dmgPath);
+  ipcMain.handle('update-open-installer', (_event, installerPath) => {
+    if (
+      typeof installerPath === 'string'
+      && /\.(dmg|exe)$/i.test(installerPath)
+      && fs.existsSync(installerPath)
+    ) {
+      return shell.openPath(installerPath);
     }
     return 'invalid path';
   });

@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setUpdateAutoCheck: (enabled) => ipcRenderer.invoke('update-set-auto-check', enabled),
   checkForUpdates: (opts = {}) => ipcRenderer.invoke('update-check', opts),
   downloadUpdate: (payload) => ipcRenderer.invoke('update-download', payload),
-  openUpdateInstaller: (dmgPath) => ipcRenderer.invoke('update-open-installer', dmgPath),
+  openUpdateInstaller: (installerPath) => ipcRenderer.invoke('update-open-installer', installerPath),
   installUpdate: (payload) => ipcRenderer.invoke('update-install', payload),
   openReleasePage: () => ipcRenderer.invoke('update-open-release-page'),
   skipUpdateVersion: (version) => ipcRenderer.invoke('update-skip-version', version),

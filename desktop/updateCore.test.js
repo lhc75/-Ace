@@ -99,6 +99,50 @@ test('resolveDownloadPlan falls back to conventional url of the release source',
   assert.equal(resolveDownloadPlan(null, '面试Ace'), null);
 });
 
+test('Windows plan downloads the NSIS Setup installer (silent install)', () => {
+  const release = {
+    version: '1.5.0',
+    tag: 'v1.5.0',
+    assets: [
+      { name: 'InterviewAce-1.5.0-arm64.dmg', browser_download_url: 'https://github.com/x/a.dmg' },
+      { name: 'InterviewAce-Setup-1.5.0.exe', browser_download_url: 'https://github.com/x/setup.exe' },
+      { name: 'InterviewAssistant-Portable-1.5.0.exe', browser_download_url: 'https://github.com/x/portable.exe' },
+    ],
+  };
+  assert.deepEqual(resolveDownloadPlan(release, '面试Ace', 'win32'), {
+    fileName: 'InterviewAce-Setup-1.5.0.exe',
+    urls: ['https://github.com/x/setup.exe'],
+  });
+});
+
+test('Windows plan tolerates differently cased or renamed setup assets', () => {
+  const lower = {
+    version: '1.5.0',
+    tag: 'v1.5.0',
+    assets: [{ name: 'interviewace-setup-1.5.0.exe', browser_download_url: 'https://x/s.exe' }],
+  };
+  assert.equal(resolveDownloadPlan(lower, '面试Ace', 'win32').urls[0], 'https://x/s.exe');
+
+  const renamed = {
+    version: '1.5.0',
+    tag: 'v1.5.0',
+    assets: [{ name: '面试Ace-Setup.exe', browser_download_url: 'https://x/s2.exe' }],
+  };
+  assert.equal(resolveDownloadPlan(renamed, '面试Ace', 'win32').urls[0], 'https://x/s2.exe');
+});
+
+test('Windows plan refuses portable-only releases (no silent install possible)', () => {
+  const release = {
+    version: '1.5.0',
+    tag: 'v1.5.0',
+    assets: [
+      { name: 'InterviewAssistant-Portable-1.5.0.exe', browser_download_url: 'https://x/p.exe' },
+      { name: 'InterviewAce-1.5.0-arm64.dmg', browser_download_url: 'https://x/a.dmg' },
+    ],
+  };
+  assert.equal(resolveDownloadPlan(release, '面试Ace', 'win32'), null);
+});
+
 test('shouldNotify only for newer, non-skipped versions', () => {
   const release = { version: '1.1.0' };
   assert.equal(shouldNotify('1.0.12', release, null), true);

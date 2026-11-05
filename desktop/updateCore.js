@@ -56,17 +56,31 @@ function parseReleasePayload(payload, source) {
 
 /**
  * 解析下载计划 { fileName, urls }：
- * 1. 附件里有 dmg 就用整包（GitHub 会剥离附件名中的非 ASCII 字符, 按 .dmg 后缀匹配）；
- * 2. 否则找 `.dmg.part-*` 分卷（Gitee 附件限 100MB，大包按分卷上传），按名称排序；
- * 3. 都没有则按约定拼 <downloadBase>/<tag>/InterviewAce-arm64.dmg。
+ * - macOS：
+ *   1. 附件里有 dmg 就用整包（GitHub 会剥离附件名中的非 ASCII 字符, 按 .dmg 后缀匹配）；
+ *   2. 否则找 `.dmg.part-*` 分卷（Gitee 附件限 100MB，大包按分卷上传），按名称排序；
+ *   3. 都没有则按约定拼 <downloadBase>/<tag>/InterviewAce-arm64.dmg。
+ * - Windows：
+ *   找 NSIS 安装包 `InterviewAce-Setup-<version>.exe`（用于静默安装）；
+ *   便携版不能让应用自动覆盖安装，找不到 Setup 时返回 null，由界面退到下载页。
  * fileName 是本地保存名（本地文件系统支持中文）。
  */
-function resolveDownloadPlan(release, productName) {
+function resolveDownloadPlan(release, productName, platform = 'darwin') {
   if (!release) return null;
-  const fileName = `${productName}-${release.version}-arm64.dmg`;
   const assets = (release.assets || [])
     .map((a) => ({ name: a && a.name, url: a && a.browser_download_url }))
     .filter((a) => typeof a.name === 'string' && typeof a.url === 'string');
+
+  if (platform === 'win32') {
+    const setupName = `InterviewAce-Setup-${release.version}.exe`;
+    const setup = assets.find((a) => a.name.toLowerCase() === setupName.toLowerCase())
+      ?? assets.find((a) => /^interviewace-setup-.+\.exe$/i.test(a.name))
+      ?? assets.find((a) => /setup.*\.exe$/i.test(a.name));
+    if (!setup) return null;
+    return { fileName: setupName, urls: [setup.url] };
+  }
+
+  const fileName = `${productName}-${release.version}-arm64.dmg`;
 
   const whole = assets.find((a) => a.name === fileName) ?? assets.find((a) => /\.dmg$/i.test(a.name));
   if (whole) return { fileName, urls: [whole.url] };

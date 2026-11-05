@@ -3,9 +3,9 @@ import { ArrowDownToLine, X, RefreshCw, ExternalLink, PackageCheck } from 'lucid
 import type { UpdateStatePayload } from '@/types/electron'
 
 /**
- * 桌面端更新提示卡：主进程检查到 Gitee 上有新 Release 时通过 update-state 事件推送。
- * 流程: available → (立即升级) downloading → ready → 打开 dmg 手动拖装。
- * macOS 未签名包无法 Squirrel 自动替换, 故采用下载 + 引导安装。
+ * 桌面端更新提示卡：主进程检查到新 Release 时通过 update-state 事件推送。
+ * 流程: available → (立即升级) downloading → ready → (安装并重启)
+ * macOS 覆盖 dmg，Windows 运行 NSIS 安装包静默升级。
  */
 export function UpdateNotifier() {
   const [state, setState] = useState<UpdateStatePayload | null>(null)
@@ -24,6 +24,7 @@ export function UpdateNotifier() {
   if (state.phase === 'none') return null
 
   const version = state.version ?? ''
+  const installerPath = state.installerPath ?? state.dmgPath
 
   return (
     <div
@@ -105,29 +106,39 @@ export function UpdateNotifier() {
             >
               跳过此版本
             </button>
-            <button
-              type="button"
-              className="btn-primary inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold"
-              onClick={() => {
-                if (state.plan && version) {
-                  void window.electronAPI?.downloadUpdate?.({ plan: state.plan, version })
-                }
-              }}
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-              立即升级
-            </button>
+            {state.plan ? (
+              <button
+                type="button"
+                className="btn-primary inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold"
+                onClick={() => {
+                  if (state.plan && version) {
+                    void window.electronAPI?.downloadUpdate?.({ plan: state.plan, version })
+                  }
+                }}
+              >
+                <ArrowDownToLine className="h-3.5 w-3.5" />
+                立即升级
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold"
+                onClick={() => void window.electronAPI?.openReleasePage?.(state.pageUrl)}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                前往下载页
+              </button>
+            )}
           </>
         )}
-        {state.phase === 'ready' && state.dmgPath && (
+        {state.phase === 'ready' && installerPath && (
           <>
             <button
               type="button"
               className="rounded-md px-2.5 py-1.5 text-[11px] font-medium text-text-muted hover:bg-bg-hover hover:text-text-primary"
               title="自动安装失败时手动安装"
               onClick={() => {
-                const dmgPath = state.dmgPath
-                if (dmgPath) void window.electronAPI?.openUpdateInstaller?.(dmgPath)
+                if (installerPath) void window.electronAPI?.openUpdateInstaller?.(installerPath)
               }}
             >
               打开安装包
@@ -136,8 +147,7 @@ export function UpdateNotifier() {
               type="button"
               className="btn-primary inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-semibold"
               onClick={() => {
-                const dmgPath = state.dmgPath
-                if (dmgPath) void window.electronAPI?.installUpdate?.({ dmgPath, version })
+                if (installerPath) void window.electronAPI?.installUpdate?.({ installerPath, version })
               }}
             >
               安装并重启

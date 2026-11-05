@@ -32,6 +32,7 @@
       "portPicker.js",
       "startupSafety.js",
       "appLogger.js",
+      "windowsInstaller.js",
       "app-title.json",
       "icon.png",
       "package.json",

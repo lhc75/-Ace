@@ -13,7 +13,11 @@ export interface UpdateStatePayload {
   notes?: string
   plan?: UpdateDownloadPlan
   percent?: number
+  /** 已下载的安装包路径（Windows .exe / macOS .dmg） */
+  installerPath?: string
+  /** @deprecated 兼容旧字段：macOS 的 dmg 路径 */
   dmgPath?: string
+  platform?: string
   error?: string
   pageUrl?: string
 }
@@ -44,8 +48,8 @@ declare global {
       setUpdateAutoCheck?: (enabled: boolean) => Promise<boolean>
       checkForUpdates?: (opts?: { manual?: boolean }) => Promise<void>
       downloadUpdate?: (payload: { plan: UpdateDownloadPlan; version: string }) => Promise<void>
-      openUpdateInstaller?: (dmgPath: string) => Promise<string>
-      installUpdate?: (payload: { dmgPath: string; version?: string }) => Promise<{ ok: boolean; error?: string }>
+      openUpdateInstaller?: (installerPath: string) => Promise<string>
+      installUpdate?: (payload: { installerPath?: string; dmgPath?: string; version?: string }) => Promise<{ ok: boolean; error?: string }>
       openReleasePage?: (pageUrl?: string) => Promise<void>
       skipUpdateVersion?: (version: string) => Promise<void>
       onUpdateState?: (callback: (payload: UpdateStatePayload) => void) => (() => void)

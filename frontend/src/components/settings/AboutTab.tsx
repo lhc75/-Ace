@@ -81,6 +81,7 @@ export default function AboutTab() {
   }
 
   const checking = updateState?.phase === 'checking'
+  const installerPath = updateState?.installerPath ?? updateState?.dmgPath
   const handleCheck = () => {
     if (checking) return
     setUpdateState({ phase: 'checking' })
@@ -158,18 +159,29 @@ export default function AboutTab() {
                 >
                   跳过此版本
                 </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent-green px-3.5 py-2 text-[13px] font-medium text-white shadow-sm transition-all hover:brightness-105"
-                  onClick={() => {
-                    if (updateState.plan && updateState.version) {
-                      void window.electronAPI?.downloadUpdate?.({ plan: updateState.plan, version: updateState.version })
-                    }
-                  }}
-                >
-                  <ArrowDownToLine className="h-3.5 w-3.5" />
-                  立即升级
-                </button>
+                {updateState.plan ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-green px-3.5 py-2 text-[13px] font-medium text-white shadow-sm transition-all hover:brightness-105"
+                    onClick={() => {
+                      if (updateState.plan && updateState.version) {
+                        void window.electronAPI?.downloadUpdate?.({ plan: updateState.plan, version: updateState.version })
+                      }
+                    }}
+                  >
+                    <ArrowDownToLine className="h-3.5 w-3.5" />
+                    立即升级
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent-green px-3.5 py-2 text-[13px] font-medium text-white shadow-sm transition-all hover:brightness-105"
+                    onClick={() => void window.electronAPI?.openReleasePage?.(updateState.pageUrl)}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    前往下载页
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -195,14 +207,13 @@ export default function AboutTab() {
                     <p className="mt-0.5 text-xs text-text-muted">点击「安装并重启」，自动完成安装并重启应用。</p>
                   </div>
                 </div>
-                {updateState.dmgPath && (
+                {installerPath && (
                   <button
                     type="button"
                     className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-accent-green px-3.5 py-2 text-[13px] font-medium text-white shadow-sm transition-all hover:brightness-105"
                     onClick={() => {
-                      const dmgPath = updateState.dmgPath
-                      if (dmgPath) {
-                        void window.electronAPI?.installUpdate?.({ dmgPath, version: updateState.version })
+                      if (installerPath) {
+                        void window.electronAPI?.installUpdate?.({ installerPath, version: updateState.version })
                       }
                     }}
                   >
@@ -213,17 +224,18 @@ export default function AboutTab() {
               {updateState.error && (
                 <p className="text-xs text-accent-red">自动安装失败：{updateState.error}</p>
               )}
-              {updateState.dmgPath && (
+              {installerPath && (
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-text-primary"
                   onClick={() => {
-                    const dmgPath = updateState.dmgPath
-                    if (dmgPath) void window.electronAPI?.openUpdateInstaller?.(dmgPath)
+                    if (installerPath) void window.electronAPI?.openUpdateInstaller?.(installerPath)
                   }}
                 >
                   <ExternalLink className="h-3 w-3" />
-                  自动安装失败时：打开安装包手动拖入「应用程序」
+                  {updateState.platform === 'darwin'
+                    ? '自动安装失败时：打开安装包手动拖入「应用程序」'
+                    : '自动安装失败时：打开安装包手动安装'}
                 </button>
               )}
             </div>
