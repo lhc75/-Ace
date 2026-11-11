@@ -241,7 +241,7 @@ class AppConfig(BaseModel):
     # 实时语音问答默认输出 token 上限，避免首题展开过长拖慢后续题。
     assist_realtime_max_tokens: int = 720
     # 高 churn 短答模式的更严格 token 上限。
-    assist_realtime_high_churn_max_tokens: int = 320
+    assist_realtime_high_churn_max_tokens: int = 220
     # 实时语音（ASR 即时派发）问题的联网搜索时间预算（秒）：搜索在答题前同步执行，
     # 全局 6s 上限对“说完就想看到回答”的场景太长；仅在模型开启联网搜索时生效。
     assist_web_search_timeout_sec: float = 2.5

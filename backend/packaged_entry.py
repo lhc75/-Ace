@@ -27,6 +27,16 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _host() -> str:
+    """解析 --host 参数或环境变量 IA_HOST"""
+    for index, arg in enumerate(sys.argv[1:], start=1):
+        if arg == "--host" and index + 1 < len(sys.argv):
+            return sys.argv[index + 1]
+        if arg.startswith("--host="):
+            return arg.split("=", 1)[1]
+    return os.environ.get("IA_HOST", "0.0.0.0")
+
+
 def _port() -> int:
     for index, arg in enumerate(sys.argv[1:], start=1):
         if arg == "--port" and index + 1 < len(sys.argv):
@@ -94,7 +104,7 @@ def main() -> None:
 
     uvicorn.run(
         app,
-        host=os.environ.get("IA_HOST", "127.0.0.1"),
+        host=_host(),
         port=_port(),
         log_level=os.environ.get("IA_LOG_LEVEL", "info"),
         access_log=os.environ.get("IA_ACCESS_LOG", "1").strip().lower()

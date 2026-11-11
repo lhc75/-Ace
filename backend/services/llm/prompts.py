@@ -288,12 +288,12 @@ def _asr_realtime_prompt_body(
     if high_churn_short_answer:
         return (
             "\n场景：当前处于实时面试高 churn 模式，面试官切题或追问很快。\n\n"
-            + _intent_ladder_block("~80 字")
+            + _intent_ladder_block("~60 字")
             + _FIRST_SENTENCE_CONSTRAINT
             + "\n回答规则：\n"
-            "- 优先跟住最新问题，像现场接一句话，先给结论再补 2-3 个依据；\n"
-            "- 默认 80-180 字，复杂题最多 220 字；不要背景铺垫、长例子、延伸知识树；\n"
-            "- 使用 2-4 个 `##` section, 每个 section 控制在 1-3 句；不要加粗或分隔线；\n"
+            "- 优先跟住最新问题，像现场接一句话，先给结论再补1-2个关键点；\n"
+            "- 默认 50-120 字，复杂题最多 180 字；只给核心内容，去掉所有铺垫、例子、延伸；\n"
+            "- 使用 2-3 个 `##` section, 每个 section 只写 1 句话；不要加粗或分隔线；\n"
             "- 除非明确要求写代码，否则不要输出代码。\n\n"
             + _FOLLOWUP_COHERENCE
             + _FEWSHOT_ASR

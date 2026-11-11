@@ -24,7 +24,7 @@ from core.env import env_int
 from core.logger import setup_logging, get_logger
 from services.stt import get_stt_engine
 from api.realtime import ws
-from api import common, assist, analytics, resume, jobs, review, ai_interview
+from api import common, assist, analytics, resume, jobs, review, ai_interview, sync
 from api import kb as kb_api
 
 setup_logging()
@@ -265,6 +265,7 @@ app.include_router(jobs.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(kb_api.router, prefix="/api")
 app.include_router(ai_interview.router, prefix="/api/ai-interview")
+app.include_router(sync.router, prefix="/api")
 
 
 if os.path.isdir(FRONTEND_DIR):

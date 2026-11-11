@@ -207,6 +207,7 @@ const FRONTEND_DIR = path.join(RESOURCE_ROOT, 'frontend', 'dist');
 // 端口启动时解析: 优先 18080, 被占用则回退到系统分配的空闲端口 (见 portPicker.js)
 let PORT = parseInt(process.env.PORT || '18080', 10);
 let SERVER_URL = `http://127.0.0.1:${PORT}`;
+let LAN_URL = null; // 用于手机扫码访问的局域网URL
 
 let mainWindow = null;
 let overlayWindow = null;
@@ -502,7 +503,7 @@ function startPythonBackend() {
     if (!fs.existsSync(executable)) {
       throw new Error(`安装包缺少后端文件: ${executable}`);
     }
-    args = ['--port', String(PORT)];
+    args = ['--port', String(PORT), '--host', '0.0.0.0'];
   } else {
     const projectPython = process.platform === 'win32'
       ? path.join(ROOT, 'env', 'Scripts', 'python.exe')
