@@ -1,6 +1,6 @@
 # 修复日志
 
-## 2026-11-12 - 真人面试辅助模式优化 v1.5.1
+## 2026-11-12 - 真人面试辅助模式优化与bug修复 v1.5.2
 
 ### 优化内容
 - **真人面试辅助prompt优化**：更明确的场景区分和角色定位
@@ -9,6 +9,12 @@
   - 保持候选人口吻：AI输出内容充当候选人角色，可直接参考使用
   - 强调实时性：回答简洁高效，口语化自然流畅
   - 辅助定位：说明输出会实时显示给候选人参考，候选人用自己的话表达
+
+### Bug修复
+- 修复前端TypeScript类型错误，解决AI面试模式构建失败问题
+  - 添加 'ai-interview' 到 AppMode 类型定义
+  - 修复 aiInterviewAPI.ts 中的 API 调用方式
+  - 修复 AIInterviewMode.tsx 中的 STAR 数据访问逻辑
 
 ### 技术改进
 - 优化 `backend/services/llm/prompts.py` 中的 `_base_prompt_prefix()` 函数
