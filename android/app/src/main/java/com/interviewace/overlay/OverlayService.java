@@ -41,8 +41,11 @@ import okhttp3.WebSocketListener;
 public class OverlayService extends Service {
     public static final String ACTION_START = "com.interviewace.overlay.START";
     public static final String ACTION_STOP = "com.interviewace.overlay.STOP";
+    public static final String ACTION_STATUS = "com.interviewace.overlay.STATUS";
     public static final String EXTRA_SERVER_URL = "server_url";
     public static final String EXTRA_MODE = "mode";
+    public static final String EXTRA_STATUS_TEXT = "status_text";
+    public static final String EXTRA_STATUS_ERROR = "status_error";
 
     private static final String CHANNEL_ID = "interview_ace_overlay";
     private static final int NOTIFICATION_ID = 18080;
@@ -106,16 +109,21 @@ public class OverlayService extends Service {
             return START_NOT_STICKY;
         }
 
-        startForegroundCompat();
-        if (!Settings.canDrawOverlays(this)) {
+        try {
+            if (!Settings.canDrawOverlays(this)) {
+                throw new IllegalStateException("悬浮窗权限未开启");
+            }
+            startForegroundCompat();
+            running = true;
+            showOverlay();
+            reportStatus("悬浮窗已显示，可切换到其他应用", false);
+            connectWebSocket();
+            return START_REDELIVER_INTENT;
+        } catch (Exception error) {
+            reportStatus("悬浮窗启动失败：" + shortError(error), true);
             stopSelf();
             return START_NOT_STICKY;
         }
-
-        running = true;
-        showOverlay();
-        connectWebSocket();
-        return START_REDELIVER_INTENT;
     }
 
     private void startForegroundCompat() {
@@ -340,6 +348,14 @@ public class OverlayService extends Service {
                 statusDot.getBackground().setTint(connected ? Color.rgb(52, 211, 153) : Color.rgb(245, 158, 11));
             }
         });
+    }
+
+    private void reportStatus(String message, boolean error) {
+        Intent status = new Intent(ACTION_STATUS)
+            .setPackage(getPackageName())
+            .putExtra(EXTRA_STATUS_TEXT, message)
+            .putExtra(EXTRA_STATUS_ERROR, error);
+        sendBroadcast(status);
     }
 
     private void scheduleReconnect() {

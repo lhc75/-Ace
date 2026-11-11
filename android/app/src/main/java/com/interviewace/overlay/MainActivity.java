@@ -1,7 +1,10 @@
 package com.interviewace.overlay;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -35,6 +38,22 @@ public class MainActivity extends AppCompatActivity {
     private RadioButton modeAi;
     private RadioButton modeAssist;
     private SharedPreferences preferences;
+    private boolean pendingStart;
+    private boolean statusReceiverRegistered;
+
+    private final BroadcastReceiver serviceStatusReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String message = intent.getStringExtra(OverlayService.EXTRA_STATUS_TEXT);
+            boolean error = intent.getBooleanExtra(OverlayService.EXTRA_STATUS_ERROR, false);
+            if (message != null) {
+                statusText.setText(message);
+                if (error) {
+                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                }
+            }
+        }
+    };
 
     private final ActivityResultLauncher<ScanOptions> qrLauncher =
         registerForActivityResult(new ScanContract(), result -> {
@@ -72,12 +91,27 @@ public class MainActivity extends AppCompatActivity {
 
         restoreState();
         requestNotificationPermission();
+        registerServiceStatusReceiver();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         refreshPermissionStatus();
+        if (pendingStart && Settings.canDrawOverlays(this)) {
+            pendingStart = false;
+            statusText.setText("悬浮窗权限已开启，正在启动…");
+            startOverlayService();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (statusReceiverRegistered) {
+            unregisterReceiver(serviceStatusReceiver);
+            statusReceiverRegistered = false;
+        }
+        super.onDestroy();
     }
 
     private void launchScanner() {
@@ -105,6 +139,8 @@ public class MainActivity extends AppCompatActivity {
             if (Settings.canDrawOverlays(this)) {
                 startOverlay();
             } else {
+                pendingStart = true;
+                statusText.setText("请在系统设置中授权，返回 App 后会自动启动悬浮窗");
                 openOverlayPermissionSettings();
             }
         } catch (IllegalArgumentException error) {
@@ -121,9 +157,15 @@ public class MainActivity extends AppCompatActivity {
         }
         if (!Settings.canDrawOverlays(this)) {
             Toast.makeText(this, "请先允许悬浮窗权限", Toast.LENGTH_SHORT).show();
+            pendingStart = true;
+            statusText.setText("授权后返回 App 会自动启动悬浮窗");
             openOverlayPermissionSettings();
             return;
         }
+        startOverlayService();
+    }
+
+    private void startOverlayService() {
         String mode = preferences.getString(KEY_MODE, "ai-interview");
         Intent intent = new Intent(this, OverlayService.class)
             .setAction(OverlayService.ACTION_START)
@@ -170,6 +212,17 @@ public class MainActivity extends AppCompatActivity {
             Uri.parse("package:" + getPackageName())
         );
         startActivity(intent);
+    }
+
+    private void registerServiceStatusReceiver() {
+        IntentFilter filter = new IntentFilter(OverlayService.ACTION_STATUS);
+        ContextCompat.registerReceiver(
+            this,
+            serviceStatusReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        );
+        statusReceiverRegistered = true;
     }
 
     private void requestNotificationPermission() {
