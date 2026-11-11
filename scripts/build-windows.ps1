@@ -53,11 +53,26 @@ New-Item -ItemType Directory -Path $backendStage -Force | Out-Null
 Invoke-Step "构建 Python 后端（PyInstaller，快速打包）" {
     & $pythonExe @pythonPrefix -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
     & $pythonExe @pythonPrefix -m PyInstaller (Join-Path $root "packaging\interview-assistant-backend.spec") --clean --noconfirm
-    $distPath = Join-Path $build "interview-assistant-backend"
-    if (-not (Test-Path $distPath)) {
-        throw "PyInstaller 未生成后端可执行文件"
+
+    # PyInstaller输出在build\interview-assistant-backend\，需要保持与Nuitka一致的目录结构
+    # Electron期望：backend\interview-assistant-backend\interview-assistant-backend.exe
+    $pyinstallerOut = Join-Path $build "interview-assistant-backend"
+    if (-not (Test-Path $pyinstallerOut)) {
+        throw "PyInstaller未生成输出目录: $pyinstallerOut"
     }
-    Move-Item $distPath $backendStage -Force
+
+    # 创建目标目录结构
+    $targetDir = Join-Path $backendStage "interview-assistant-backend"
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+
+    # 将PyInstaller输出的所有文件移到正确的位置
+    Get-ChildItem $pyinstallerOut | Move-Item -Destination $targetDir -Force
+    Remove-Item $pyinstallerOut -Force
+
+    $backendExe = Join-Path $targetDir "interview-assistant-backend.exe"
+    if (-not (Test-Path $backendExe)) {
+        throw "PyInstaller未生成后端可执行文件: $backendExe"
+    }
 }
 
 Invoke-Step "安装桌面端依赖" { npm --prefix $desktop ci }

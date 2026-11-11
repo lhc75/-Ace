@@ -69,13 +69,26 @@ step "构建 macOS Python 后端（PyInstaller，快速打包）"
 "$PYTHON" -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
 "$PYTHON" -m PyInstaller "$ROOT/packaging/interview-assistant-backend.spec" --clean --noconfirm
 
-BACKEND_BIN="$BUILD/interview-assistant-backend/interview-assistant-backend"
+# PyInstaller输出在build/interview-assistant-backend/，需要保持与Nuitka一致的目录结构
+# Electron期望：backend/interview-assistant-backend/interview-assistant-backend
+PYINSTALLER_OUT="$BUILD/interview-assistant-backend"
+if [[ ! -d "$PYINSTALLER_OUT" ]]; then
+  echo "[ERROR] PyInstaller未生成输出目录: $PYINSTALLER_OUT" >&2
+  exit 1
+fi
+
+# 创建目标目录结构
+mkdir -p "$BACKEND_STAGE/interview-assistant-backend"
+# 将PyInstaller输出的所有文件移到正确的位置
+mv "$PYINSTALLER_OUT"/* "$BACKEND_STAGE/interview-assistant-backend/"
+rm -rf "$PYINSTALLER_OUT"
+
+BACKEND_BIN="$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
 if [[ ! -f "$BACKEND_BIN" ]]; then
   echo "[ERROR] PyInstaller 未生成后端可执行文件: $BACKEND_BIN" >&2
   exit 1
 fi
-mv "$BUILD/interview-assistant-backend" "$BACKEND_STAGE/"
-chmod +x "$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
+chmod +x "$BACKEND_BIN"
 
 if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
   step "生成 macOS 图标"

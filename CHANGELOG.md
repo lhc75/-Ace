@@ -1,5 +1,32 @@
 # 修复日志
 
+## 2026-11-12 - 修复PyInstaller路径问题 v1.5.8
+
+### 🔧 关键修复
+**修复v1.5.7应用闪退问题**
+
+**问题原因**：
+- PyInstaller输出结构与Nuitka不同
+- Electron期望路径：`backend/interview-assistant-backend/interview-assistant-backend`
+- PyInstaller输出路径：`backend/interview-assistant-backend`（平级）
+- 导致后端启动失败，退出码255
+
+**修复内容**：
+1. 调整macOS构建脚本，创建正确的目录结构
+2. 调整Windows构建脚本，保持路径一致性
+3. 确保PyInstaller输出符合Electron的预期路径
+
+**构建速度保持**：
+- macOS: 5-10分钟 ⚡
+- Windows: 5-10分钟 ⚡
+- 总时间: 10-15分钟（比Nuitka快8倍）
+
+### ✅ 包含所有功能
+- 快速构建（PyInstaller）
+- 修复DMG覆盖安装数据丢失
+- 手机扫码访问支持
+- 所有v1.5.x功能
+
 ## 2026-11-12 - 构建速度大幅优化 v1.5.7
 
 ### ⚡ 重大性能提升
