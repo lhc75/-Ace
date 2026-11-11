@@ -50,8 +50,14 @@ if (Test-Path $backendStage) {
 }
 New-Item -ItemType Directory -Path $backendStage -Force | Out-Null
 
-Invoke-Step "构建 Python 后端（Nuitka，编译为机器码）" {
-    & (Join-Path $root "scripts\build-backend-nuitka.ps1")
+Invoke-Step "构建 Python 后端（PyInstaller，快速打包）" {
+    & $pythonExe @pythonPrefix -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
+    & $pythonExe @pythonPrefix -m PyInstaller (Join-Path $root "packaging\interview-assistant-backend.spec") --clean --noconfirm
+    $distPath = Join-Path $build "interview-assistant-backend"
+    if (-not (Test-Path $distPath)) {
+        throw "PyInstaller 未生成后端可执行文件"
+    }
+    Move-Item $distPath $backendStage -Force
 }
 
 Invoke-Step "安装桌面端依赖" { npm --prefix $desktop ci }

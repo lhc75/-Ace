@@ -65,15 +65,17 @@ if [[ -d "$BACKEND_STAGE" ]]; then
 fi
 mkdir -p "$BACKEND_STAGE"
 
-step "构建 macOS Python 后端（Nuitka，编译为机器码）"
-"$ROOT/scripts/build-backend-nuitka.sh"
+step "构建 macOS Python 后端（PyInstaller，快速打包）"
+"$PYTHON" -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
+"$PYTHON" -m PyInstaller "$ROOT/packaging/interview-assistant-backend.spec" --clean --noconfirm
 
-BACKEND_BIN="$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
+BACKEND_BIN="$BUILD/interview-assistant-backend/interview-assistant-backend"
 if [[ ! -f "$BACKEND_BIN" ]]; then
-  echo "[ERROR] Nuitka 未生成后端可执行文件: $BACKEND_BIN" >&2
+  echo "[ERROR] PyInstaller 未生成后端可执行文件: $BACKEND_BIN" >&2
   exit 1
 fi
-chmod +x "$BACKEND_BIN"
+mv "$BUILD/interview-assistant-backend" "$BACKEND_STAGE/"
+chmod +x "$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
 
 if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
   step "生成 macOS 图标"

@@ -42,25 +42,17 @@ jobs:
       - name: Create project venv (env/)
         run: python -m venv env
 
-      # Nuitka 编译缓存，二次构建可从几十分钟降到几分钟
-      - name: Cache Nuitka build cache
+      # PyInstaller构建缓存（Windows）
+      - name: Cache PyInstaller build cache
         uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\Nuitka
-          key: nuitka-${{ runner.os }}-py3.11-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.ps1') }}
+          path: |
+            ~\AppData\Local\pyinstaller
+            build
+          key: pyinstaller-${{ runner.os }}-py3.11-${{ hashFiles('backend/requirements.txt', 'packaging/interview-assistant-backend.spec') }}
           restore-keys: |
-            nuitka-${{ runner.os }}-py3.11-
-            nuitka-${{ runner.os }}-
-
-      # 缓存Python虚拟环境，加速依赖安装
-      - name: Cache Python virtualenv
-        uses: actions/cache@v4
-        with:
-          path: env
-          key: venv-${{ runner.os }}-py3.11-${{ hashFiles('backend/requirements.txt') }}
-          restore-keys: |
-            venv-${{ runner.os }}-py3.11-
-            venv-${{ runner.os }}-
+            pyinstaller-${{ runner.os }}-py3.11-
+            pyinstaller-${{ runner.os }}-
 
       - name: Run Windows build script
         run: .\scripts\build-windows.ps1
@@ -100,25 +92,17 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      # Nuitka 编译缓存（macOS 路径），二次构建大幅提速
-      - name: Cache Nuitka build cache
+      # PyInstaller构建缓存（macOS）
+      - name: Cache PyInstaller build cache
         uses: actions/cache@v4
         with:
-          path: ~/Library/Caches/Nuitka
-          key: nuitka-${{ runner.os }}-py3.13-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.sh') }}
+          path: |
+            ~/Library/Caches/pyinstaller
+            build
+          key: pyinstaller-${{ runner.os }}-py3.13-${{ hashFiles('backend/requirements.txt', 'packaging/interview-assistant-backend.spec') }}
           restore-keys: |
-            nuitka-${{ runner.os }}-py3.13-
-            nuitka-${{ runner.os }}-
-
-      # 缓存Python虚拟环境，加速依赖安装
-      - name: Cache Python virtualenv
-        uses: actions/cache@v4
-        with:
-          path: env
-          key: venv-${{ runner.os }}-py3.13-${{ hashFiles('backend/requirements.txt') }}
-          restore-keys: |
-            venv-${{ runner.os }}-py3.13-
-            venv-${{ runner.os }}-
+            pyinstaller-${{ runner.os }}-py3.13-
+            pyinstaller-${{ runner.os }}-
 
       # build-macos.sh 会自建 env 虚拟环境、生成 icns 图标，并产出 dmg + zip
       - name: Run macOS build script
