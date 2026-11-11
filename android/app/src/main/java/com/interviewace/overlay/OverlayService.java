@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
@@ -23,6 +24,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -49,7 +51,8 @@ public class OverlayService extends Service {
 
     private static final String CHANNEL_ID = "interview_ace_overlay";
     private static final int NOTIFICATION_ID = 18080;
-    private static final float[] OPACITY_STEPS = {0.94f, 0.82f, 0.68f, 0.52f};
+    private static final String PREFS = "overlay_prefs";
+    private static final String KEY_OPACITY_PERCENT = "overlay_opacity_percent";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AnswerStream answerStream = new AnswerStream();
@@ -62,6 +65,9 @@ public class OverlayService extends Service {
     private TextView connectionText;
     private TextView titleText;
     private TextView opacityButton;
+    private TextView opacityValue;
+    private View opacityPanel;
+    private SeekBar opacitySeek;
     private View statusDot;
     private ScrollView answerScroll;
     private View overlayRoot;
@@ -73,8 +79,9 @@ public class OverlayService extends Service {
     private boolean running;
     private boolean reconnectScheduled;
     private int reconnectAttempt;
-    private int opacityIndex;
+    private int opacityPercent = 82;
     private String lastRenderedId = "";
+    private SharedPreferences preferences;
 
     @Nullable
     @Override
@@ -86,6 +93,8 @@ public class OverlayService extends Service {
     public void onCreate() {
         super.onCreate();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        preferences = getSharedPreferences(PREFS, MODE_PRIVATE);
+        opacityPercent = Math.max(5, Math.min(100, preferences.getInt(KEY_OPACITY_PERCENT, 82)));
         createNotificationChannel();
     }
 
@@ -183,6 +192,9 @@ public class OverlayService extends Service {
         connectionText = overlayView.findViewById(R.id.connectionText);
         titleText = overlayView.findViewById(R.id.titleText);
         opacityButton = overlayView.findViewById(R.id.opacityButton);
+        opacityPanel = overlayView.findViewById(R.id.opacityPanel);
+        opacitySeek = overlayView.findViewById(R.id.opacitySeek);
+        opacityValue = overlayView.findViewById(R.id.opacityValue);
         statusDot = overlayView.findViewById(R.id.statusDot);
         answerScroll = overlayView.findViewById(R.id.answerScroll);
         titleText.setText("assist".equals(mode) ? "实时辅助答案" : "AI 面试实时答案");
@@ -206,33 +218,68 @@ public class OverlayService extends Service {
         windowParams.x = Math.max(0, (screenWidth - width) / 2);
         windowParams.y = Math.max(dp(24), Math.round(screenHeight * 0.08f));
 
-        opacityIndex = 1;
         applySurfaceOpacity();
         wireControls(screenWidth, screenHeight);
         windowManager.addView(overlayView, windowParams);
     }
 
     private void wireControls(int screenWidth, int screenHeight) {
+        View headerBar = overlayView.findViewById(R.id.headerBar);
         View dragHandle = overlayView.findViewById(R.id.dragHandle);
-        dragHandle.setOnTouchListener(new SimpleDragListener());
+        SimpleDragListener dragListener = new SimpleDragListener();
+        headerBar.setOnTouchListener(dragListener);
+        dragHandle.setOnTouchListener(dragListener);
+        titleText.setOnTouchListener(dragListener);
 
         overlayView.findViewById(R.id.sizeUp).setOnClickListener(view -> scaleWindow(1.12f, screenWidth, screenHeight));
         overlayView.findViewById(R.id.sizeDown).setOnClickListener(view -> scaleWindow(0.88f, screenWidth, screenHeight));
         opacityButton.setOnClickListener(view -> {
-            opacityIndex = (opacityIndex + 1) % OPACITY_STEPS.length;
-            applySurfaceOpacity();
+            opacityPanel.setVisibility(opacityPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         });
+        opacitySeek.setMax(95);
+        opacitySeek.setProgress(Math.max(0, Math.min(95, opacityPercent - 5)));
+        opacitySeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                opacityPercent = progress + 5;
+                applySurfaceOpacity();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                preferences.edit().putInt(KEY_OPACITY_PERCENT, opacityPercent).apply();
+            }
+        });
+        overlayView.findViewById(R.id.resizeTopLeft).setOnTouchListener(
+            new CornerResizeListener(OverlayGeometry.CORNER_TOP_LEFT, screenWidth, screenHeight)
+        );
+        overlayView.findViewById(R.id.resizeTopRight).setOnTouchListener(
+            new CornerResizeListener(OverlayGeometry.CORNER_TOP_RIGHT, screenWidth, screenHeight)
+        );
+        overlayView.findViewById(R.id.resizeBottomLeft).setOnTouchListener(
+            new CornerResizeListener(OverlayGeometry.CORNER_BOTTOM_LEFT, screenWidth, screenHeight)
+        );
+        overlayView.findViewById(R.id.resizeBottomRight).setOnTouchListener(
+            new CornerResizeListener(OverlayGeometry.CORNER_BOTTOM_RIGHT, screenWidth, screenHeight)
+        );
         overlayView.findViewById(R.id.closeButton).setOnClickListener(view -> stopSelf());
     }
 
     private void applySurfaceOpacity() {
-        int alpha = Math.round(255 * OPACITY_STEPS[opacityIndex]);
+        int alpha = Math.round(255 * (opacityPercent / 100f));
         GradientDrawable shape = new GradientDrawable();
         shape.setCornerRadius(dp(18));
         shape.setColor(Color.argb(alpha, 17, 23, 32));
         shape.setStroke(dp(1), Color.argb(80, 255, 255, 255));
         overlayRoot.setBackground(shape);
-        opacityButton.setText(String.format(Locale.CHINA, "透明%d%%", Math.round(OPACITY_STEPS[opacityIndex] * 100)));
+        opacityButton.setText("透明度");
+        if (opacityValue != null) {
+            opacityValue.setText(String.format(Locale.CHINA, "%d%%", opacityPercent));
+        }
     }
 
     private void scaleWindow(float factor, int screenWidth, int screenHeight) {
@@ -260,6 +307,61 @@ public class OverlayService extends Service {
                 case MotionEvent.ACTION_MOVE:
                     windowParams.x = startX + Math.round(event.getRawX() - downRawX);
                     windowParams.y = startY + Math.round(event.getRawY() - downRawY);
+                    windowManager.updateViewLayout(overlayView, windowParams);
+                    return true;
+                default:
+                    return false;
+            }
+        }
+    }
+
+    private final class CornerResizeListener implements View.OnTouchListener {
+        private final int corner;
+        private final int screenWidth;
+        private final int screenHeight;
+        private float downRawX;
+        private float downRawY;
+        private int startX;
+        private int startY;
+        private int startWidth;
+        private int startHeight;
+
+        private CornerResizeListener(int corner, int screenWidth, int screenHeight) {
+            this.corner = corner;
+            this.screenWidth = screenWidth;
+            this.screenHeight = screenHeight;
+        }
+
+        @Override
+        public boolean onTouch(View view, MotionEvent event) {
+            if (windowParams == null || overlayView == null) return false;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downRawX = event.getRawX();
+                    downRawY = event.getRawY();
+                    startX = windowParams.x;
+                    startY = windowParams.y;
+                    startWidth = windowParams.width;
+                    startHeight = windowParams.height;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    OverlayGeometry.Bounds bounds = OverlayGeometry.resize(
+                        startX,
+                        startY,
+                        startWidth,
+                        startHeight,
+                        Math.round(event.getRawX() - downRawX),
+                        Math.round(event.getRawY() - downRawY),
+                        corner,
+                        dp(280),
+                        dp(220),
+                        screenWidth - dp(8),
+                        screenHeight - dp(32)
+                    );
+                    windowParams.width = bounds.width;
+                    windowParams.height = bounds.height;
+                    windowParams.x = Math.max(0, Math.min(screenWidth - bounds.width, bounds.x));
+                    windowParams.y = Math.max(dp(16), Math.min(screenHeight - bounds.height, bounds.y));
                     windowManager.updateViewLayout(overlayView, windowParams);
                     return true;
                 default:

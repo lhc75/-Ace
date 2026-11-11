@@ -1,129 +1,202 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/ace_overlay_bg"
-    android:elevation="18dp"
-    android:orientation="vertical"
-    android:padding="1dp">
+    android:elevation="18dp">
 
     <LinearLayout
+        android:id="@+id/overlayContent"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="@color/ace_overlay_header"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="6dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="1dp">
 
-        <TextView
-            android:id="@+id/dragHandle"
-            android:layout_width="26dp"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:text="⋮⋮"
-            android:textColor="@color/ace_overlay_muted"
-            android:textSize="16sp" />
+        <LinearLayout
+            android:id="@+id/headerBar"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@color/ace_overlay_header"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="28dp">
 
-        <View
-            android:id="@+id/statusDot"
-            android:layout_width="8dp"
-            android:layout_height="8dp"
-            android:background="@drawable/dot_status" />
+            <TextView
+                android:id="@+id/dragHandle"
+                android:layout_width="26dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="⋮⋮"
+                android:textColor="@color/ace_overlay_muted"
+                android:textSize="16sp" />
 
-        <TextView
-            android:id="@+id/titleText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:text="实时答案"
-            android:textColor="@color/ace_overlay_text"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+            <View
+                android:id="@+id/statusDot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/dot_status" />
 
-        <TextView
-            android:id="@+id/sizeDown"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:text="−"
-            android:textColor="@color/ace_overlay_text"
-            android:textSize="20sp" />
+            <TextView
+                android:id="@+id/titleText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="实时答案"
+                android:textColor="@color/ace_overlay_text"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:id="@+id/sizeUp"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:text="+"
-            android:textColor="@color/ace_overlay_text"
-            android:textSize="20sp" />
+            <TextView
+                android:id="@+id/sizeDown"
+                android:layout_width="30dp"
+                android:layout_height="34dp"
+                android:gravity="center"
+                android:text="−"
+                android:textColor="@color/ace_overlay_text"
+                android:textSize="20sp" />
 
-        <TextView
-            android:id="@+id/opacityButton"
-            android:layout_width="42dp"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:text="透明"
-            android:textColor="@color/ace_overlay_muted"
-            android:textSize="11sp" />
+            <TextView
+                android:id="@+id/sizeUp"
+                android:layout_width="30dp"
+                android:layout_height="34dp"
+                android:gravity="center"
+                android:text="+"
+                android:textColor="@color/ace_overlay_text"
+                android:textSize="20sp" />
 
-        <TextView
-            android:id="@+id/closeButton"
-            android:layout_width="34dp"
-            android:layout_height="34dp"
-            android:gravity="center"
-            android:text="×"
-            android:textColor="@color/ace_overlay_text"
-            android:textSize="22sp" />
-    </LinearLayout>
+            <TextView
+                android:id="@+id/opacityButton"
+                android:layout_width="48dp"
+                android:layout_height="34dp"
+                android:gravity="center"
+                android:text="透明度"
+                android:textColor="@color/ace_overlay_muted"
+                android:textSize="10sp" />
 
-    <TextView
-        android:id="@+id/questionText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="#12000000"
-        android:maxLines="2"
-        android:paddingStart="12dp"
-        android:paddingTop="6dp"
-        android:paddingEnd="12dp"
-        android:paddingBottom="6dp"
-        android:textColor="@color/ace_overlay_muted"
-        android:textSize="11sp"
-        android:visibility="gone" />
+            <TextView
+                android:id="@+id/closeButton"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:gravity="center"
+                android:text="×"
+                android:textColor="@color/ace_overlay_text"
+                android:textSize="22sp" />
+        </LinearLayout>
 
-    <ScrollView
-        android:id="@+id/answerScroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:scrollbars="vertical">
-
-        <TextView
-            android:id="@+id/answerText"
+        <LinearLayout
+            android:id="@+id/opacityPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:lineSpacingExtra="4dp"
-            android:padding="14dp"
-            android:text="等待电脑端 AI 答案…"
-            android:textColor="@color/ace_overlay_text"
-            android:textIsSelectable="true"
-            android:textSize="16sp" />
-    </ScrollView>
+            android:background="@color/ace_overlay_header"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone">
 
-    <TextView
-        android:id="@+id/connectionText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@color/ace_overlay_header"
-        android:gravity="center"
-        android:padding="5dp"
-        android:text="准备连接"
-        android:textColor="@color/ace_overlay_muted"
-        android:textSize="10sp" />
-</LinearLayout>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="透明度"
+                android:textColor="@color/ace_overlay_muted"
+                android:textSize="11sp" />
+
+            <SeekBar
+                android:id="@+id/opacitySeek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:max="95"
+                android:progress="77" />
+
+            <TextView
+                android:id="@+id/opacityValue"
+                android:layout_width="42dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:text="82%"
+                android:textColor="@color/ace_overlay_text"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/questionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#12000000"
+            android:maxLines="2"
+            android:paddingStart="12dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="6dp"
+            android:textColor="@color/ace_overlay_muted"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <ScrollView
+            android:id="@+id/answerScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:scrollbars="vertical">
+
+            <TextView
+                android:id="@+id/answerText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:lineSpacingExtra="4dp"
+                android:padding="14dp"
+                android:text="等待电脑端 AI 答案…"
+                android:textColor="@color/ace_overlay_text"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+        </ScrollView>
+
+        <TextView
+            android:id="@+id/connectionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/ace_overlay_header"
+            android:gravity="center"
+            android:padding="5dp"
+            android:text="准备连接"
+            android:textColor="@color/ace_overlay_muted"
+            android:textSize="10sp" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/resizeTopLeft"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="top|start"
+        android:background="@drawable/resize_handle" />
+
+    <View
+        android:id="@+id/resizeTopRight"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="top|end"
+        android:background="@drawable/resize_handle" />
+
+    <View
+        android:id="@+id/resizeBottomLeft"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="bottom|start"
+        android:background="@drawable/resize_handle" />
+
+    <View
+        android:id="@+id/resizeBottomRight"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_gravity="bottom|end"
+        android:background="@drawable/resize_handle" />
+</FrameLayout>
