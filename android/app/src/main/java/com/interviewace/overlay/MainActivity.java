@@ -166,6 +166,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startOverlayService() {
+        String rawUrl = preferences.getString(KEY_SERVER, "");
+        if (rawUrl == null || rawUrl.trim().isEmpty()) {
+            Toast.makeText(this, "请先扫描电脑端二维码", Toast.LENGTH_SHORT).show();
+            return;
+        }
         String mode = preferences.getString(KEY_MODE, "ai-interview");
         Intent intent = new Intent(this, OverlayService.class)
             .setAction(OverlayService.ACTION_START)
