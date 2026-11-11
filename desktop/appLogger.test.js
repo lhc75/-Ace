@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   BACKUP_FILE_NAME,
   formatLine,
+  formatLogPathsText,
   initFileLogger,
   rotateIfNeeded,
   toText,
@@ -31,6 +32,15 @@ test('toText 兼容字符串、错误与普通对象', () => {
   const circular = {};
   circular.self = circular;
   assert.equal(typeof toText(circular), 'string');
+});
+
+test('日志路径提示同时包含桌面日志和后端日志且不会递归', () => {
+  const text = formatLogPathsText({
+    desktopLogPath: '/tmp/ia/logs/desktop.log',
+    backendLogDir: '/tmp/ia/log',
+  });
+
+  assert.equal(text, '桌面日志：/tmp/ia/logs/desktop.log\n后端日志：/tmp/ia/log');
 });
 
 test('初始化后日志同步写盘，可被崩溃后的取证读取', () => {

@@ -25,6 +25,10 @@ function toText(value) {
   }
 }
 
+function formatLogPathsText({ desktopLogPath, backendLogDir }) {
+  return `桌面日志：${desktopLogPath}\n后端日志：${backendLogDir}`;
+}
+
 function formatLine(now, level, parts) {
   return `${now.toISOString()} [${level}] ${parts.map(toText).join(' ')}\n`;
 }
@@ -115,6 +119,7 @@ module.exports = {
   LOG_FILE_NAME,
   MAX_LOG_BYTES,
   formatLine,
+  formatLogPathsText,
   initFileLogger,
   rotateIfNeeded,
   toText,

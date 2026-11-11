@@ -117,6 +117,18 @@ describe('App bootstrap', () => {
     expect(screen.queryByText('连接后端失败')).not.toBeInTheDocument()
   })
 
+  it('switches to the AI interview page from the sidebar', async () => {
+    render(<App />)
+
+    const aiInterviewTab = await screen.findByRole('tab', { name: 'AI面试' })
+    fireEvent.click(aiInterviewTab)
+
+    await waitFor(() => {
+      expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('heading', { name: 'AI模拟面试' })).toBeInTheDocument()
+    })
+  })
+
   it('prevents duplicate mobile server screen asks while one is in flight', async () => {
     let resolveAsk: ((value: unknown) => void) | null = null
     const pendingAsk = new Promise((resolve) => {

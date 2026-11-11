@@ -50,6 +50,7 @@ const APP_MODE_VALUES: ReadonlySet<AppMode> = new Set([
   'knowledge',
   'resume-opt',
   'job-tracker',
+  'ai-interview',
 ])
 
 /* ── localStorage 读取/归一化助手 ─────────────────────────────

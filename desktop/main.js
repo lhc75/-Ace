@@ -68,7 +68,7 @@ const {
   resolveStartupSafetyLevel,
   shouldDisableHardwareAcceleration,
 } = require('./startupSafety');
-const { initFileLogger } = require('./appLogger');
+const { formatLogPathsText, initFileLogger } = require('./appLogger');
 const { migrateLegacyUserData, resolveUserDataDir } = require('./userDataMigration');
 
 const pkg = require('./package.json');
@@ -131,7 +131,10 @@ const userDataMigration = migrateLegacyUserData({
 
 /** 出错时告诉用户日志在哪：桌面日志 + 后端日志（同目录的 log/ 下） */
 function logPathsText() {
-  return `${logPathsText()}\n后端日志：${path.join(USER_DATA_DIR, 'log')}`;
+  return formatLogPathsText({
+    desktopLogPath: logger.logPath,
+    backendLogDir: path.join(USER_DATA_DIR, 'log'),
+  });
 }
 
 // 桌面日志：打包后的 Windows 应用没有控制台，启动阶段被系统/驱动/安全软件杀掉时
