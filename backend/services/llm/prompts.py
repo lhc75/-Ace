@@ -99,26 +99,72 @@ _FEWSHOT_EXAM = (
 )
 
 
-def _ai_interview_prompt_body(language: str, language_lower: str) -> str:
+def _ai_interview_prompt_body(
+    language: str,
+    language_lower: str,
+    high_churn_short_answer: bool = False,
+) -> str:
+    if high_churn_short_answer:
+        self_intro_rule = (
+            "1. 自我介绍题：识别为自我介绍后，固定按 `## 一句话标签开场`、"
+            "`## 两段匹配经历`、`## 动机收尾` 输出。"
+            "简短回答模式只给 60 秒压缩版，每节 1-2 句，总长不超过 280 字，"
+            "不展开学习经历，不复述完整简历，不输出 90 秒加强版。\n"
+        )
+        behavior_rule = (
+            "2. 行为经历题/宝洁八大问：固定按 `## 情境`、`## 任务`、"
+            "`## 行动`、`## 结果` 输出，每节只写 1 句，总长不超过 260 字。"
+            "必须使用第一人称“我”，结果优先使用真实数字；"
+            "失败题增加 1 句 `## 复盘改进`。\n"
+        )
+        scenario_rule = (
+            "3. 情景与动机题：固定按 `## 稳住局面`、`## 找到原因`、"
+            "`## 给出方案`，每节只写 1 句，总长不超过 220 字。"
+            "动机题增加 `## 公司业务匹配`，用一句话带入至少 3 个具体业务/技术关键词。\n"
+        )
+        other_rule = (
+            "4. 其他结构化或半结构化题：结论先行，输出 2-3 个 `##` 小节，"
+            "总长 150-260 字，每节 1-2 句，不展开例子和背景。\n"
+        )
+    else:
+        self_intro_rule = (
+            "1. 自我介绍题：必须按“一句话标签开场 -> 两段最匹配岗位的经历 -> 一句动机收尾”。"
+            "先用 `## 一句话标签开场`、`## 两段匹配经历`、`## 动机收尾` 输出 60 秒主答案；"
+            "再补 `## 90 秒加强版`，只写两段可追加的匹配细节，不复述完整简历。\n"
+        )
+        behavior_rule = (
+            "2. 行为经历题/宝洁八大问：必须使用 STAR。"
+            "先判断属于高目标、领导力、搜集信息、说服力、合作、创新、抓住关键、学习能力中的哪一类，"
+            "但不输出分类。固定按 `## 情境`、`## 任务`、`## 行动`、`## 结果` 输出。"
+            "行动部分突出“我”做了什么，不能把团队成果全部写成个人成果；结果必须优先使用简历中的真实数字。"
+            "简历没有真实数字时不得编造，改用可核实的完成量、覆盖范围、耗时变化或明确说明缺少量化结果。"
+            "失败题必须在结果后增加 `## 复盘改进`，说明学到什么、后来具体怎么改。\n"
+        )
+        scenario_rule = (
+            "3. 情景与动机题：固定按 `## 稳住局面`、`## 找到原因`、`## 给出方案` 三步回答。"
+            "如果题目问为什么选择公司/岗位，必须增加 `## 公司业务匹配`，"
+            "从题干、岗位或简历中提取至少 3 个具体业务/技术关键词；不得只写平台大、前景好、文化好等空话。\n"
+        )
+        other_rule = (
+            "4. 其他结构化或半结构化题：先给可说的结论，再用 2-4 个贴合题目的 `##` 小节展开；"
+            "必须有明确观点和例子，不输出题型判断、元话术或培训建议。\n"
+        )
+    short_priority_rule = (
+        "\n简短回答优先规则：开启简短回答时，所有模板都必须保留，但只保留可直接说出口的结论、关键动作和结果；"
+        "不铺垫背景、不扩展无关细节、不重复题目。\n\n"
+        if high_churn_short_answer
+        else "\n"
+    )
     return (
         "\n场景：你在为候选人提供在线 AI 面试实时答案。"
         "输出必须是可以直接照着说出口的候选人口吻，不是教程、分析报告或模拟面试点评。\n\n"
         "题型识别与输出硬规则（识别过程不输出）：\n"
-        "1. 自我介绍题：必须按“一句话标签开场 -> 两段最匹配岗位的经历 -> 一句动机收尾”。"
-        "先用 `## 一句话标签开场`、`## 两段匹配经历`、`## 动机收尾` 输出 60 秒主答案；"
-        "再补 `## 90 秒加强版`，只写两段可追加的匹配细节，不复述完整简历。\n"
-        "2. 行为经历题/宝洁八大问：必须使用 STAR。"
-        "先判断属于高目标、领导力、搜集信息、说服力、合作、创新、抓住关键、学习能力中的哪一类，"
-        "但不输出分类。固定按 `## 情境`、`## 任务`、`## 行动`、`## 结果` 输出。"
-        "行动部分突出“我”做了什么，不能把团队成果全部写成个人成果；结果必须优先使用简历中的真实数字。"
-        "简历没有真实数字时不得编造，改用可核实的完成量、覆盖范围、耗时变化或明确说明缺少量化结果。"
-        "失败题必须在结果后增加 `## 复盘改进`，说明学到什么、后来具体怎么改。\n"
-        "3. 情景与动机题：固定按 `## 稳住局面`、`## 找到原因`、`## 给出方案` 三步回答。"
-        "如果题目问为什么选择公司/岗位，必须增加 `## 公司业务匹配`，"
-        "从题干、岗位或简历中提取至少 3 个具体业务/技术关键词；不得只写平台大、前景好、文化好等空话。\n"
-        "4. 其他结构化或半结构化题：先给可说的结论，再用 2-4 个贴合题目的 `##` 小节展开；"
-        "必须有明确观点和例子，不输出题型判断、元话术或培训建议。\n\n"
-        "表达约束：\n"
+        + self_intro_rule
+        + behavior_rule
+        + scenario_rule
+        + other_rule
+        + short_priority_rule
+        + "表达约束：\n"
         "- 使用第一人称“我”，避免整段用“我们”模糊个人贡献；\n"
         "- 优先使用简历和题干中的真实事实，不得虚构公司、项目、指标或职责；\n"
         "- 语言简洁、口语化、有层次，适合 60-90 秒现场表达；\n"
@@ -331,7 +377,7 @@ def _asr_realtime_prompt_body(
 ) -> str:
     if high_churn_short_answer:
         return (
-            "\n场景：当前处于实时面试高 churn 模式，面试官切题或追问很快。\n\n"
+            "\n场景：当前处于简短回答模式，优先保证候选人能快速说出口。\n\n"
             + _intent_ladder_block("~60 字")
             + _FIRST_SENTENCE_CONSTRAINT
             + "\n回答规则：\n"
@@ -371,7 +417,26 @@ def _asr_realtime_prompt_body(
     return body
 
 
-def _manual_text_prompt_body(language: str, language_lower: str) -> str:
+def _manual_text_prompt_body(
+    language: str,
+    language_lower: str,
+    high_churn_short_answer: bool = False,
+) -> str:
+    if high_churn_short_answer:
+        return (
+            "\n场景：本轮输入来自手动文本，当前开启了简短回答模式。\n\n"
+            + _FIRST_SENTENCE_CONSTRAINT
+            + "\n回答规则：\n"
+            "- 使用真人候选人口吻，先给结论，再给 1-2 个关键依据；\n"
+            "- 总长控制在 120-260 字；普通题 2 个 `##` 小节，复杂题最多 3 个；\n"
+            "- 每个小节只写 1-2 句，不铺垫背景，不扩展无关细节，不重复题目；\n"
+            "- 只有题目明确要求时才给代码、例子或完整方案；\n"
+            "- 不输出题型判断、检查清单或元话术。\n\n"
+            "输出格式：\n"
+            "- 使用贴合题目的 `##` 二级标题；\n"
+            "- 不要使用加粗、分隔线或固定模板；\n"
+            f"- 非 SQL 代码仅在明确要求时使用 ```{language_lower}，SQL 使用 ```sql。\n"
+        )
     return (
         "\n场景：本轮输入来自手动文本（通常比实时语音更完整）。\n\n"
         + _FIRST_SENTENCE_CONSTRAINT
@@ -741,7 +806,11 @@ def build_system_prompt(
             web_search_section,
             include_focus_contract=False,
         )
-        body = _ai_interview_prompt_body(cfg.language, lang_lower)
+        body = _ai_interview_prompt_body(
+            cfg.language,
+            lang_lower,
+            high_churn_short_answer=high_churn_short_answer,
+        )
     elif mode == PROMPT_MODE_SERVER_SCREEN:
         prefix = _base_prompt_prefix(
             cfg.position, cfg.language, resume_section, kb_section, web_search_section
@@ -751,7 +820,11 @@ def build_system_prompt(
         prefix = _base_prompt_prefix(
             cfg.position, cfg.language, resume_section, kb_section, web_search_section
         )
-        body = _manual_text_prompt_body(cfg.language, lang_lower)
+        body = _manual_text_prompt_body(
+            cfg.language,
+            lang_lower,
+            high_churn_short_answer=high_churn_short_answer,
+        )
     else:
         prefix = _base_prompt_prefix(
             cfg.position, cfg.language, resume_section, kb_section, web_search_section

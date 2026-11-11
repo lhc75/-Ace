@@ -696,11 +696,19 @@ def _max_tokens_for_prompt(
     high_churn_short_answer: bool = False,
 ) -> int:
     base_limit = max(1, int(getattr(cfg, "max_tokens", 4096) or 4096))
-    if prompt_mode == PROMPT_MODE_ASR_REALTIME:
+    if prompt_mode in (
+        PROMPT_MODE_ASR_REALTIME,
+        PROMPT_MODE_MANUAL_TEXT,
+        PROMPT_MODE_AI_INTERVIEW,
+    ):
         cap = (
             int(getattr(cfg, "assist_realtime_high_churn_max_tokens", 420) or 420)
             if high_churn_short_answer
-            else int(getattr(cfg, "assist_realtime_max_tokens", 900) or 900)
+            else (
+                int(getattr(cfg, "assist_realtime_max_tokens", 900) or 900)
+                if prompt_mode == PROMPT_MODE_ASR_REALTIME
+                else base_limit
+            )
         )
         return max(1, min(base_limit, cap))
     return base_limit
@@ -844,7 +852,10 @@ def process_question_parallel(
         written_exam=written_exam,
         answer_profile=meta.get("answer_profile"),
     )
-    high_churn_short_answer = bool(meta.get("high_churn_short_answer", False))
+    high_churn_short_answer = bool(
+        getattr(cfg, "assist_high_churn_short_answer", False)
+        or meta.get("high_churn_short_answer", False)
+    )
 
     kb_hits: list = []
     kb_latency_ms = 0

@@ -658,6 +658,36 @@ def test_process_question_parallel_uses_global_max_tokens_for_manual_text(monkey
     assert captured["override_max_tokens"] == 4096
 
 
+def test_global_short_answer_setting_applies_to_manual_text(monkeypatch: pytest.MonkeyPatch):
+    broadcasts: list[dict] = []
+    captured: dict[str, object] = {}
+    cfg = _cfg()
+    cfg.assist_high_churn_short_answer = True
+    monkeypatch.setattr(answer_worker, "get_config", lambda: cfg)
+
+    def fake_prompt(**kwargs):
+        captured["short"] = kwargs.get("high_churn_short_answer")
+        return "system"
+
+    def fake_stream(*_args, **kwargs):
+        captured["override_max_tokens"] = kwargs.get("override_max_tokens")
+        yield ("text", "简短回答。")
+
+    monkeypatch.setattr(answer_worker, "build_system_prompt", fake_prompt)
+    monkeypatch.setattr(answer_worker, "chat_stream_single_model", fake_stream)
+
+    answer_worker.process_question_parallel(
+        ("Redis 怎么持久化？", None, True, "manual_text", {"origin": "manual"}),
+        seq=0,
+        model_idx=0,
+        sess_v=0,
+        deps=_deps(broadcasts=broadcasts),
+    )
+
+    assert captured["short"] is True
+    assert captured["override_max_tokens"] == 320
+
+
 def test_process_question_parallel_uses_high_churn_token_cap(monkeypatch: pytest.MonkeyPatch):
     broadcasts: list[dict] = []
     captured: dict[str, object] = {}

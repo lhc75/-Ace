@@ -282,6 +282,25 @@ def test_ai_interview_postprocess_keeps_required_section_headings():
     assert postprocess_answer_for_mode(answer, "ai_interview") == answer
 
 
+def test_short_answer_mode_compacts_manual_and_ai_interview_prompts():
+    manual = build_system_prompt(mode="manual_text", high_churn_short_answer=True)
+    ai_interview = build_system_prompt(mode="ai_interview", high_churn_short_answer=True)
+    asr = build_system_prompt(mode="asr_realtime", high_churn_short_answer=True)
+
+    assert "当前开启了简短回答模式" in manual
+    assert "总长控制在 120-260 字" in manual
+    assert "普通题 500-900 字" not in manual
+
+    assert "简短回答优先规则" in ai_interview
+    assert "总长不超过 280 字" in ai_interview
+    assert "不输出 90 秒加强版" in ai_interview
+    assert "总长不超过 260 字" in ai_interview
+    assert "总长不超过 220 字" in ai_interview
+
+    assert "简短回答模式" in asr
+    assert "默认 50-120 字" in asr
+
+
 def test_stream_sanitizer_removes_split_think_tags():
     s = create_answer_stream_sanitizer("manual_text")
     chunks = ["<thi", "nking>内部思考</thinking>用 AOF", " 和 RDB。"]

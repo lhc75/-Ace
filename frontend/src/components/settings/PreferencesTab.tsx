@@ -225,7 +225,7 @@ export default function PreferencesTab() {
           <div className="grid grid-cols-2 gap-2">
             {([
               { value: false, label: '详细回答', hint: '解释更完整' },
-              { value: true, label: '简短回答', hint: '更快跟住问题' },
+              { value: true, label: '简短回答', hint: '全场压缩，保留结论和关键点' },
             ]).map((item) => {
               const selected = (config?.assist_high_churn_short_answer ?? false) === item.value
               return (
