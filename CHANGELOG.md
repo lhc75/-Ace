@@ -1,5 +1,30 @@
 # 修复日志
 
+## 2026-11-12 - 紧急修复：应用无法启动 v1.5.4
+
+### 🔴 紧急修复
+**修复v1.5.2和v1.5.3无法启动的严重问题**
+
+**问题原因**：
+- `backend/api/ai_interview/routes.py` 中错误使用了 `Field()` 定义GET请求的查询参数
+- FastAPI要求GET/DELETE等非请求体参数必须使用 `Query()`、`Path()` 或 `Header()`
+- 导致应用启动时抛出 `AssertionError: non-body parameters must be in path, query, header or cookie`
+
+**修复内容**：
+1. 修复 `check_star_completion` 函数：添加 `StarCompletionRequest` 模型
+2. 修复 `preview_questions` 函数：将 `count` 参数改用 `Query()`
+3. 添加必要的导入：`from fastapi import Query`
+
+### ✅ 包含v1.5.3的所有功能
+1. 手机扫码访问修复（DMG版本监听0.0.0.0）
+2. 简短回答模式优化（50-180字）
+3. 电脑手机AI输出实时同步（WebSocket）
+
+### 测试确认
+- ✅ macOS本地启动测试通过
+- ✅ 所有API模块导入成功
+- ✅ 端口监听正常（0.0.0.0:18080）
+
 ## 2026-11-12 - 手机扫码访问和实时同步 v1.5.3
 
 ### 重要修复
