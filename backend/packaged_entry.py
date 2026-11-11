@@ -92,36 +92,38 @@ def _self_test() -> None:
     import json
     import tempfile
 
-    with tempfile.TemporaryDirectory(prefix="interview-ace-self-test-") as temp_dir:
-        # A mounted DMG is read-only. Keep config/log/database writes out of the
-        # app bundle so this command also validates the package before install.
-        os.environ.setdefault("IA_APP_DATA_DIR", temp_dir)
-        os.environ.setdefault("IA_LOG_DIR", os.path.join(temp_dir, "log"))
-        os.makedirs(os.environ["IA_LOG_DIR"], exist_ok=True)
+    # A mounted DMG is read-only. Keep config/log/database writes out of the app
+    # bundle. Do not auto-delete this directory: frozen log handlers keep files
+    # open on Windows until process exit, so cleanup would fail or take 30s.
+    temp_dir = tempfile.mkdtemp(prefix="interview-ace-self-test-")
+    os.environ.setdefault("IA_APP_DATA_DIR", temp_dir)
+    os.environ.setdefault("IA_LOG_DIR", os.path.join(temp_dir, "log"))
+    os.makedirs(os.environ["IA_LOG_DIR"], exist_ok=True)
 
-        modules = (
-            "fastapi",
-            "uvicorn",
-            "pydantic",
-            "pydantic_core",
-            "websockets",
-            "numpy",
-            "sounddevice",
-            "faster_whisper",
-            "ctranslate2",
-            "onnxruntime",
-            "tokenizers",
-            "PIL.Image",
-            "pymupdf",
-            "mss",
-        )
-        for module_name in modules:
-            importlib.import_module(module_name)
+    modules = (
+        "fastapi",
+        "uvicorn",
+        "pydantic",
+        "pydantic_core",
+        "websockets",
+        "numpy",
+        "sounddevice",
+        "faster_whisper",
+        "ctranslate2",
+        "onnxruntime",
+        "tokenizers",
+        "PIL.Image",
+        "pymupdf",
+        "mss",
+    )
+    for module_name in modules:
+        importlib.import_module(module_name)
 
-        # Importing main validates the bundled API/router/data-file graph.
-        from main import app
+    # Importing main validates the bundled API/router/data-file graph.
+    from main import app
 
-        print(json.dumps({"status": "ok", "app": app.title}, ensure_ascii=False))
+    # Windows consoles often use cp1252; keep smoke-test output ASCII.
+    print(json.dumps({"status": "ok", "app": app.title}, ensure_ascii=True))
 
 
 def main() -> None:
