@@ -33,7 +33,7 @@ def main() -> None:
 
     bundle = args.bundle.resolve()
     if not bundle.is_dir():
-        fail(f"后端运行目录不存在: {bundle}")
+        fail(f"backend bundle directory not found: {bundle}")
 
     executable = bundle / (
         "interview-assistant-backend.exe"
@@ -41,7 +41,7 @@ def main() -> None:
         else "interview-assistant-backend"
     )
     if not executable.is_file():
-        fail(f"后端可执行文件不存在: {executable}")
+        fail(f"backend executable not found: {executable}")
 
     root_files = [path for path in bundle.iterdir() if path.is_file()]
     intermediates = [
@@ -52,7 +52,7 @@ def main() -> None:
     ]
     if intermediates:
         fail(
-            "检测到 PyInstaller 中间产物，说明打包目录取错: "
+            "PyInstaller intermediate artifacts detected; wrong bundle directory: "
             + ", ".join(sorted(intermediates))
         )
 
@@ -62,22 +62,22 @@ def main() -> None:
     ]
     if len(all_files) < MIN_FILES[args.os]:
         fail(
-            f"后端文件不完整: {len(all_files)} files, "
+            f"incomplete backend bundle: {len(all_files)} files, "
             f"expected at least {MIN_FILES[args.os]}"
         )
     if len(native_files) < MIN_NATIVE_FILES[args.os]:
         fail(
-            f"后端原生依赖不完整: {len(native_files)} native files, "
+            f"incomplete backend native dependencies: {len(native_files)} files, "
             f"expected at least {MIN_NATIVE_FILES[args.os]}"
         )
 
     if args.os == "mac" and not any(path.name == "Python" for path in all_files):
-        fail("macOS 后端缺少 Python 运行时")
+        fail("macOS backend is missing the Python runtime")
     if args.os == "win" and not any(
         path.name.lower().startswith("python") and path.suffix.lower() == ".dll"
         for path in all_files
     ):
-        fail("Windows 后端缺少 Python 运行时")
+        fail("Windows backend is missing the Python runtime")
 
     if not args.skip_smoke:
         try:
@@ -103,13 +103,13 @@ def main() -> None:
                 stdout = stdout_file.read()
                 stderr = stderr_file.read()
         except (OSError, subprocess.TimeoutExpired) as exc:
-            fail(f"后端可执行文件启动校验失败: {exc}")
+            fail(f"backend executable smoke test failed: {exc}")
         if result.returncode != 0:
             detail = (stderr or stdout).strip()
-            fail(f"后端可执行文件启动校验失败 (exit {result.returncode}): {detail}")
+            fail(f"backend executable smoke test failed (exit {result.returncode}): {detail}")
 
     print(
-        "[OK] 后端运行目录完整: "
+        "[OK] backend bundle complete: "
         f"{len(all_files)} files, {len(native_files)} native files"
     )
 
