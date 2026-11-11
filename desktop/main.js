@@ -499,9 +499,19 @@ function startPythonBackend() {
     const executableName = process.platform === 'win32'
       ? 'interview-assistant-backend.exe'
       : 'interview-assistant-backend';
-    executable = path.join(BACKEND_DIR, executableName);
-    if (!fs.existsSync(executable)) {
-      throw new Error(`安装包缺少后端文件: ${executable}`);
+
+    // 尝试两种路径结构：
+    // 1. Nuitka: backend/interview-assistant-backend/interview-assistant-backend
+    // 2. PyInstaller: backend/interview-assistant-backend
+    const nuitkaPath = path.join(BACKEND_DIR, executableName, executableName);
+    const pyinstallerPath = path.join(BACKEND_DIR, executableName);
+
+    if (fs.existsSync(nuitkaPath)) {
+      executable = nuitkaPath;
+    } else if (fs.existsSync(pyinstallerPath)) {
+      executable = pyinstallerPath;
+    } else {
+      throw new Error(`安装包缺少后端文件: ${nuitkaPath} 或 ${pyinstallerPath}`);
     }
     args = ['--port', String(PORT), '--host', '0.0.0.0'];
   } else {

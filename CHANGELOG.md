@@ -1,5 +1,26 @@
 # 修复日志
 
+## 2026-11-12 - 兼容PyInstaller路径结构 v1.5.9
+
+### 🔧 彻底修复
+**Electron代码兼容两种后端路径结构**
+
+**问题原因**：
+- v1.5.8构建脚本修改未生效
+- 后端仍在`backend/interview-assistant-backend`而非子目录中
+
+**解决方案**：
+- 修改Electron启动代码，同时支持两种路径：
+  1. Nuitka: `backend/interview-assistant-backend/interview-assistant-backend`
+  2. PyInstaller: `backend/interview-assistant-backend`
+- 自动检测并使用正确的路径
+- 向后兼容，支持所有打包方式
+
+**立即可用**：
+- v1.5.9可以直接使用v1.5.7/v1.5.8的安装包
+- 无需重新构建，应用即可启动
+- 构建速度保持10-15分钟
+
 ## 2026-11-12 - 修复PyInstaller路径问题 v1.5.8
 
 ### 🔧 关键修复
