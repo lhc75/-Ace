@@ -94,6 +94,30 @@ def reset_worker_state(monkeypatch: pytest.MonkeyPatch):
     )
 
 
+def test_prompt_mode_for_task_respects_ai_interview_profile():
+    assert answer_worker.prompt_mode_for_task(
+        "manual_text",
+        True,
+        answer_profile="ai_interview",
+    ) == answer_worker.PROMPT_MODE_AI_INTERVIEW
+    assert answer_worker.prompt_mode_for_task(
+        "mobile_ai_interview",
+        False,
+        answer_profile="ai_interview",
+    ) == answer_worker.PROMPT_MODE_AI_INTERVIEW
+    assert answer_worker.prompt_mode_for_task(
+        "conversation_loopback",
+        False,
+        answer_profile="assist",
+    ) == answer_worker.PROMPT_MODE_ASR_REALTIME
+    assert answer_worker.prompt_mode_for_task(
+        "manual_text",
+        True,
+        written_exam=True,
+        answer_profile="ai_interview",
+    ) == answer_worker.PROMPT_MODE_AI_INTERVIEW
+
+
 def test_process_question_parallel_streams_and_commits_answer(monkeypatch: pytest.MonkeyPatch):
     broadcasts: list[dict] = []
     knowledge: list[tuple[str, str, str, str]] = []

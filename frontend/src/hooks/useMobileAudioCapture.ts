@@ -117,7 +117,7 @@ export function useMobileAudioCapture() {
     publishState('starting')
     intentionalStopRef.current = false
     try {
-      await api.mobileCaptureStart()
+      await api.mobileCaptureStart('ai_interview')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,

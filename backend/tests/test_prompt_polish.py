@@ -231,7 +231,7 @@ def test_followup_prompt_inherits_context_for_fragments():
 def test_asr_high_churn_keeps_oral_short_answer_shape():
     p = _asr_prompt(high_churn=True)
     assert "像现场接一句话" in p
-    assert "默认 80-180 字" in p
+    assert "默认 50-120 字" in p
 
 
 def test_manual_prompt_warns_not_to_emit_template_labels():
@@ -247,6 +247,39 @@ def test_manual_prompt_warns_not_to_emit_template_labels():
     assert "详细模式只代表讲清机制、方案取舍、验证和风险" in p
     assert "不代表要编个人项目经历" in p
     assert "只有题干明确问" in p
+
+
+def test_ai_interview_prompt_enforces_three_answer_structures_and_pg_questions():
+    p = build_system_prompt(mode="ai_interview")
+    assert "一句话标签开场" in p
+    assert "两段匹配经历" in p
+    assert "动机收尾" in p
+    assert "90 秒加强版" in p
+    assert "宝洁八大问" in p
+    assert "高目标" in p
+    assert "领导力" in p
+    assert "搜集信息" in p
+    assert "说服力" in p
+    assert "合作" in p
+    assert "创新" in p
+    assert "抓住关键" in p
+    assert "学习能力" in p
+    assert "## 情境" in p
+    assert "## 任务" in p
+    assert "## 行动" in p
+    assert "## 结果" in p
+    assert "## 复盘改进" in p
+    assert "## 稳住局面" in p
+    assert "## 找到原因" in p
+    assert "## 给出方案" in p
+    assert "至少 3 个具体业务/技术关键词" in p
+    assert "使用第一人称“我”" in p
+    assert "专注面板输出协议" not in p
+
+
+def test_ai_interview_postprocess_keeps_required_section_headings():
+    answer = "## 情境\n项目压力很大。\n## 任务\n我负责交付。\n## 行动\n我拆解关键路径。\n## 结果\n按期完成。"
+    assert postprocess_answer_for_mode(answer, "ai_interview") == answer
 
 
 def test_stream_sanitizer_removes_split_think_tags():

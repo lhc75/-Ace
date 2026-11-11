@@ -11,12 +11,26 @@ PROMPT_MODE_ASR_REALTIME = "asr_realtime"
 PROMPT_MODE_MANUAL_TEXT = "manual_text"
 PROMPT_MODE_SERVER_SCREEN = "server_screen_code"
 PROMPT_MODE_WRITTEN_EXAM = "written_exam"
+PROMPT_MODE_AI_INTERVIEW = "ai_interview"
+
+ANSWER_PROFILE_ASSIST = "assist"
+ANSWER_PROFILE_AI_INTERVIEW = "ai_interview"
+
 PromptMode = Literal[
     "asr_realtime",
     "manual_text",
     "server_screen_code",
     "written_exam",
+    "ai_interview",
 ]
+
+
+def normalize_answer_profile(value: object) -> str:
+    return (
+        ANSWER_PROFILE_AI_INTERVIEW
+        if str(value or "").strip().lower() == ANSWER_PROFILE_AI_INTERVIEW
+        else ANSWER_PROFILE_ASSIST
+    )
 
 
 _FIRST_SENTENCE_CONSTRAINT = (
@@ -83,6 +97,35 @@ _FEWSHOT_EXAM = (
     "    return prev\n"
     "```\n"
 )
+
+
+def _ai_interview_prompt_body(language: str, language_lower: str) -> str:
+    return (
+        "\n场景：你在为候选人提供在线 AI 面试实时答案。"
+        "输出必须是可以直接照着说出口的候选人口吻，不是教程、分析报告或模拟面试点评。\n\n"
+        "题型识别与输出硬规则（识别过程不输出）：\n"
+        "1. 自我介绍题：必须按“一句话标签开场 -> 两段最匹配岗位的经历 -> 一句动机收尾”。"
+        "先用 `## 一句话标签开场`、`## 两段匹配经历`、`## 动机收尾` 输出 60 秒主答案；"
+        "再补 `## 90 秒加强版`，只写两段可追加的匹配细节，不复述完整简历。\n"
+        "2. 行为经历题/宝洁八大问：必须使用 STAR。"
+        "先判断属于高目标、领导力、搜集信息、说服力、合作、创新、抓住关键、学习能力中的哪一类，"
+        "但不输出分类。固定按 `## 情境`、`## 任务`、`## 行动`、`## 结果` 输出。"
+        "行动部分突出“我”做了什么，不能把团队成果全部写成个人成果；结果必须优先使用简历中的真实数字。"
+        "简历没有真实数字时不得编造，改用可核实的完成量、覆盖范围、耗时变化或明确说明缺少量化结果。"
+        "失败题必须在结果后增加 `## 复盘改进`，说明学到什么、后来具体怎么改。\n"
+        "3. 情景与动机题：固定按 `## 稳住局面`、`## 找到原因`、`## 给出方案` 三步回答。"
+        "如果题目问为什么选择公司/岗位，必须增加 `## 公司业务匹配`，"
+        "从题干、岗位或简历中提取至少 3 个具体业务/技术关键词；不得只写平台大、前景好、文化好等空话。\n"
+        "4. 其他结构化或半结构化题：先给可说的结论，再用 2-4 个贴合题目的 `##` 小节展开；"
+        "必须有明确观点和例子，不输出题型判断、元话术或培训建议。\n\n"
+        "表达约束：\n"
+        "- 使用第一人称“我”，避免整段用“我们”模糊个人贡献；\n"
+        "- 优先使用简历和题干中的真实事实，不得虚构公司、项目、指标或职责；\n"
+        "- 语言简洁、口语化、有层次，适合 60-90 秒现场表达；\n"
+        "- 结果和行动要能回答面试官最关心的能力点：目标感、领导力、信息分析、说服、合作、创新、抓关键、学习转化；\n"
+        "- 不输出“根据 STAR 法则”“这是行为题”等解释，直接给答案内容。\n\n"
+        f"语言：{language}。代码仅在题目明确要求时使用 ```{language_lower}。\n"
+    )
 
 
 def _intent_ladder_block(short_answer_budget: str) -> str:
@@ -224,6 +267,7 @@ def _base_prompt_prefix(
     resume_section: str,
     kb_section: str = "",
     web_search_section: str = "",
+    include_focus_contract: bool = True,
 ) -> str:
     kb_citation = ""
     if kb_section:
@@ -261,7 +305,7 @@ def _base_prompt_prefix(
         "- 最终只输出真人候选人口吻的回答内容，供候选人参考并向面试官表达；\n"
         f"{kb_citation}"
         f"{web_citation}"
-        f"{_FOCUS_TAB_OUTPUT_CONTRACT}"
+        f"{_FOCUS_TAB_OUTPUT_CONTRACT if include_focus_contract else ''}"
     )
 
 
@@ -521,7 +565,7 @@ def is_incomplete_intent_answer(text: str) -> bool:
 
 def postprocess_answer_for_mode(text: str, mode: str) -> str:
     t = strip_web_citation_markers(_strip_internal_thought_artifacts(text))
-    if mode in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT):
+    if mode in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT, PROMPT_MODE_AI_INTERVIEW):
         t = _strip_meta_preface(t)
         t = _normalize_non_code_markdown(t)
     return t.strip()
@@ -565,7 +609,14 @@ class AnswerStreamSanitizer:
         text = strip_web_citation_markers(text)
         if not text:
             return ""
-        if not self._started and self.mode in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT):
+        if (
+            not self._started
+            and self.mode in (
+                PROMPT_MODE_ASR_REALTIME,
+                PROMPT_MODE_MANUAL_TEXT,
+                PROMPT_MODE_AI_INTERVIEW,
+            )
+        ):
             text = _strip_meta_preface(text)
         text = self._clean_markdown_stream(text)
         if not self._started:
@@ -613,7 +664,11 @@ class AnswerStreamSanitizer:
         return "".join(out)
 
     def _clean_markdown_stream(self, text: str) -> str:
-        if self.mode not in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT):
+        if self.mode not in (
+            PROMPT_MODE_ASR_REALTIME,
+            PROMPT_MODE_MANUAL_TEXT,
+            PROMPT_MODE_AI_INTERVIEW,
+        ):
             return text
         out: list[str] = []
         i = 0
@@ -677,6 +732,16 @@ def build_system_prompt(
     if mode == PROMPT_MODE_WRITTEN_EXAM:
         prefix = _written_exam_prefix(kb_section, web_search_section)
         body = _written_exam_prompt_body(cfg.language, lang_lower, region)
+    elif mode == PROMPT_MODE_AI_INTERVIEW:
+        prefix = _base_prompt_prefix(
+            cfg.position,
+            cfg.language,
+            resume_section,
+            kb_section,
+            web_search_section,
+            include_focus_contract=False,
+        )
+        body = _ai_interview_prompt_body(cfg.language, lang_lower)
     elif mode == PROMPT_MODE_SERVER_SCREEN:
         prefix = _base_prompt_prefix(
             cfg.position, cfg.language, resume_section, kb_section, web_search_section

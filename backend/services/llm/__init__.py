@@ -1,6 +1,9 @@
 """LLM package: prompt builders + streaming generation."""
 
 from .prompts import (
+    ANSWER_PROFILE_AI_INTERVIEW,
+    ANSWER_PROFILE_ASSIST,
+    PROMPT_MODE_AI_INTERVIEW,
     PROMPT_MODE_ASR_REALTIME,
     PROMPT_MODE_MANUAL_TEXT,
     PROMPT_MODE_SERVER_SCREEN,
@@ -9,6 +12,7 @@ from .prompts import (
     build_system_prompt,
     create_answer_stream_sanitizer,
     is_incomplete_intent_answer,
+    normalize_answer_profile,
     postprocess_answer_for_mode,
 )
 
@@ -38,6 +42,9 @@ from .streaming import (
 )
 
 __all__ = [
+    "ANSWER_PROFILE_AI_INTERVIEW",
+    "ANSWER_PROFILE_ASSIST",
+    "PROMPT_MODE_AI_INTERVIEW",
     "PROMPT_MODE_ASR_REALTIME",
     "PROMPT_MODE_MANUAL_TEXT",
     "PROMPT_MODE_SERVER_SCREEN",
@@ -46,6 +53,7 @@ __all__ = [
     "build_system_prompt",
     "create_answer_stream_sanitizer",
     "is_incomplete_intent_answer",
+    "normalize_answer_profile",
     "postprocess_answer_for_mode",
     "get_client",
     "get_client_for_model",

@@ -10,6 +10,11 @@ from core.config import get_config
 from core.logger import get_logger
 from core.session import conversation_lock, get_session, snapshot_session
 from services.audio import AudioBusyError
+from services.llm import (
+    ANSWER_PROFILE_AI_INTERVIEW,
+    ANSWER_PROFILE_ASSIST,
+    normalize_answer_profile,
+)
 from .pipeline import (
     cancel_answer_work,
     is_paused,
@@ -69,6 +74,7 @@ class ManualQuestion(BaseModel):
     image: Optional[str] = None
     override_think_mode: Optional[bool] = None
     replace_qa_id: Optional[str] = Field(default=None, max_length=200)
+    answer_profile: Optional[str] = Field(default=None, max_length=40)
 
 
 class MultiServerScreenQuestion(BaseModel):
@@ -81,8 +87,11 @@ class ServerScreenQuestion(BaseModel):
 
 
 @router.post("/mobile-capture/start")
-async def api_mobile_capture_start():
-    await run_in_threadpool(start_mobile_capture)
+async def api_mobile_capture_start(body: Optional[dict] = None):
+    answer_profile = normalize_answer_profile(
+        (body or {}).get("answer_profile") or ANSWER_PROFILE_AI_INTERVIEW
+    )
+    await run_in_threadpool(start_mobile_capture, answer_profile)
     return {"ok": True}
 
 
@@ -115,18 +124,26 @@ async def api_start(body: dict):
     if is_exam_preflight_running():
         raise HTTPException(409, "笔试链路检测正在运行，请等待检测结束后再开始")
     cfg = get_config()
-    written_exam = bool(getattr(cfg, "written_exam_mode", False))
     device_id = body.get("device_id")
     candidate_mic_device_id = body.get("candidate_mic_device_id")
+    answer_profile = normalize_answer_profile(body.get("answer_profile"))
+    written_exam = (
+        bool(getattr(cfg, "written_exam_mode", False))
+        and answer_profile != ANSWER_PROFILE_AI_INTERVIEW
+    )
     if not written_exam and device_id is None:
         raise HTTPException(400, "\u8bf7\u9009\u62e9\u97f3\u9891\u8bbe\u5907")
     dev = _parse_optional_device_id(device_id, "device_id")
     candidate_dev = _parse_optional_device_id(candidate_mic_device_id, "candidate_mic_device_id")
     try:
-        if candidate_dev is None:
+        if answer_profile == ANSWER_PROFILE_ASSIST and candidate_dev is None:
             await run_in_threadpool(start_nonblocking, dev)
-        else:
+        elif answer_profile == ANSWER_PROFILE_ASSIST:
             await run_in_threadpool(start_nonblocking, dev, candidate_dev)
+        elif candidate_dev is None:
+            await run_in_threadpool(start_nonblocking, dev, None, answer_profile)
+        else:
+            await run_in_threadpool(start_nonblocking, dev, candidate_dev, answer_profile)
         return {"ok": True}
     except AudioBusyError as e:
         raise HTTPException(409, str(e))
@@ -246,7 +263,10 @@ async def api_ask(body: ManualQuestion):
         raise HTTPException(400, "问题不能为空")
     text = body.text.strip() or "请分析这张图片中的题目，并给出面试回答"
     src = "manual_image" if body.image else "manual_text"
-    meta = {"origin": "manual"}
+    meta = {
+        "origin": "manual",
+        "answer_profile": normalize_answer_profile(body.answer_profile),
+    }
     if body.override_think_mode is not None:
         meta["override_think_mode"] = bool(body.override_think_mode)
     original_transcription_texts: dict[str, str] = {}

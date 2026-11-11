@@ -1006,3 +1006,40 @@ def test_start_passes_device_id_when_provided_in_exam_mode(monkeypatch):
     result = _run(assist_router.api_start({"device_id": 5}))
     assert result == {"ok": True}
     assert start_args["device_id"] == 5
+
+
+def test_start_passes_ai_interview_answer_profile(monkeypatch):
+    assist_router = importlib.import_module("api.assist.routes")
+
+    monkeypatch.setattr(
+        assist_router,
+        "get_config",
+        lambda: type("Cfg", (), {"written_exam_mode": False})(),
+    )
+
+    start_args = {}
+
+    def fake_start_nonblocking(device_id, candidate_mic_device_id, answer_profile):
+        start_args.update({
+            "device_id": device_id,
+            "candidate_mic_device_id": candidate_mic_device_id,
+            "answer_profile": answer_profile,
+        })
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    monkeypatch.setattr(assist_router, "start_nonblocking", fake_start_nonblocking)
+    monkeypatch.setattr(assist_router, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = _run(assist_router.api_start({
+        "device_id": 5,
+        "answer_profile": "ai_interview",
+    }))
+
+    assert result == {"ok": True}
+    assert start_args == {
+        "device_id": 5,
+        "candidate_mic_device_id": None,
+        "answer_profile": "ai_interview",
+    }

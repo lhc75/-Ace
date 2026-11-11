@@ -5,6 +5,7 @@ import ControlBar from '@/components/ControlBar'
 import TranscriptionPanel from '@/components/TranscriptionPanel'
 import MobileInterviewOverlay from '@/components/mobile/MobileInterviewOverlay'
 import { useMobileAudioCapture } from '@/hooks/useMobileAudioCapture'
+import { requestInterviewOverlayPip } from '@/lib/interviewOverlay'
 import { useInterviewStore } from '@/stores/configStore'
 
 function isMobileSurface(): boolean {
@@ -61,7 +62,10 @@ function MobileAIInterview() {
           type="button"
           onClick={() => {
             if (isRecordingNow) void capture.stop()
-            else void capture.start()
+            else {
+              requestInterviewOverlayPip()
+              void capture.start()
+            }
           }}
           disabled={capture.state === 'starting' || capture.state === 'stopping'}
           className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-white disabled:opacity-60 ${

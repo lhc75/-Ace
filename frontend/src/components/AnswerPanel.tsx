@@ -232,9 +232,17 @@ type QACardProps = {
   stream: boolean
   colorScheme: ColorSchemeId
   animate: boolean
+  forceInterviewMode: boolean
 }
 
-const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, animate }: QACardProps) {
+const QACard = memo(function QACard({
+  qa,
+  isStreaming,
+  stream,
+  colorScheme,
+  animate,
+  forceInterviewMode,
+}: QACardProps) {
   const beginAnswerReplacement = useInterviewStore((s) => s.beginAnswerReplacement)
   const restoreAnswerReplacement = useInterviewStore((s) => s.restoreAnswerReplacement)
   const updateTranscription = useInterviewStore((s) => s.updateTranscription)
@@ -270,7 +278,10 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
     setEditing(false)
     beginAnswerReplacement(qa.id, nextQuestion)
     try {
-      await api.ask(nextQuestion, undefined, { replaceQaId: qa.id })
+      await api.ask(nextQuestion, undefined, {
+        replaceQaId: qa.id,
+        answerProfile: forceInterviewMode ? 'ai_interview' : 'assist',
+      })
       for (const transcriptionId of qa.sourceTranscriptionIds ?? []) {
         updateTranscription(transcriptionId, nextQuestion)
       }
@@ -645,6 +656,7 @@ export default function AnswerPanel({ forceInterviewMode = false }: { forceInter
             stream={stream}
             colorScheme={colorScheme}
             animate={animate}
+            forceInterviewMode={forceInterviewMode}
           />
         )
       })}

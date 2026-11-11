@@ -247,7 +247,7 @@ describe('AnswerPanel empty recording state', () => {
       expect(apiMock.ask).toHaveBeenCalledWith(
         '修正后的面试官问题',
         undefined,
-        { replaceQaId: 'qa-edit' },
+        { replaceQaId: 'qa-edit', answerProfile: 'assist' },
       )
     })
     const state = useInterviewStore.getState()
@@ -295,7 +295,7 @@ describe('AnswerPanel empty recording state', () => {
       expect(apiMock.ask).toHaveBeenCalledWith(
         '暂停时修正的问题',
         undefined,
-        { replaceQaId: 'qa-paused-edit' },
+        { replaceQaId: 'qa-paused-edit', answerProfile: 'assist' },
       )
     })
   })

@@ -11,6 +11,8 @@ from core.config import get_config, has_valid_api_key
 from core.session import get_session, conversation_lock
 from services.stt import classify_followup, normalize_transcription_for_analysis
 from services.llm import (
+    ANSWER_PROFILE_AI_INTERVIEW,
+    PROMPT_MODE_AI_INTERVIEW,
     PROMPT_MODE_ASR_REALTIME,
     PROMPT_MODE_MANUAL_TEXT,
     PROMPT_MODE_SERVER_SCREEN,
@@ -726,7 +728,10 @@ def prompt_mode_for_task(
     source: str,
     manual_input: bool,
     written_exam: bool = False,
+    answer_profile: object = None,
 ) -> PromptMode:
+    if str(answer_profile or "").strip().lower() == ANSWER_PROFILE_AI_INTERVIEW:
+        return PROMPT_MODE_AI_INTERVIEW
     if written_exam:
         return PROMPT_MODE_WRITTEN_EXAM
     if (source or "").startswith("server_screen_"):
@@ -828,9 +833,17 @@ def process_question_parallel(
     if _aborted_before_start():
         return
 
-    written_exam = bool(getattr(cfg, "written_exam_mode", False))
+    written_exam = (
+        bool(getattr(cfg, "written_exam_mode", False))
+        and str(meta.get("answer_profile") or "").strip().lower() != ANSWER_PROFILE_AI_INTERVIEW
+    )
     written_exam_think = bool(getattr(cfg, "written_exam_think", False))
-    prompt_mode = prompt_mode_for_task(source, manual_input, written_exam=written_exam)
+    prompt_mode = prompt_mode_for_task(
+        source,
+        manual_input,
+        written_exam=written_exam,
+        answer_profile=meta.get("answer_profile"),
+    )
     high_churn_short_answer = bool(meta.get("high_churn_short_answer", False))
 
     kb_hits: list = []

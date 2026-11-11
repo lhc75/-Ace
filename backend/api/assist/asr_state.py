@@ -16,11 +16,13 @@ from services.stt import (
     transcription_for_publish,
 )
 from api.assist.scheduler import TaskPayload
+from services.llm import ANSWER_PROFILE_ASSIST, normalize_answer_profile
 
 
 @dataclass
 class PendingASRGroup:
     source: str
+    answer_profile: str = ANSWER_PROFILE_ASSIST
     utterances: list[str] = field(default_factory=list)
     first_mono: float = 0.0
     last_mono: float = 0.0
@@ -61,6 +63,7 @@ class AssistAsrStateMachine:
         # sentence_end already marks complete sentences, so the question-group
         # windows can be much shorter than the VAD-segment defaults.
         self.stream_mode = False
+        self.answer_profile = ANSWER_PROFILE_ASSIST
         self.merge_parts: list[str] = []
         self.merge_mono_first: Optional[float] = None
         self.merge_mono_last: Optional[float] = None
@@ -78,6 +81,9 @@ class AssistAsrStateMachine:
 
     def reset_pending_group(self):
         self.pending_group = None
+
+    def set_answer_profile(self, profile: object) -> None:
+        self.answer_profile = normalize_answer_profile(profile)
 
     def flush_question_group_now(self, cfg, session) -> None:
         group = self.pending_group
@@ -119,6 +125,7 @@ class AssistAsrStateMachine:
                     "high_churn_short_answer": high_churn_short,
                     "dispatch_after_mono": now_mono + dispatch_grace,
                     "asr_tail_grace_until_mono": now_mono + dispatch_grace,
+                    "answer_profile": group.answer_profile,
                 },
             )
         )
@@ -216,7 +223,9 @@ class AssistAsrStateMachine:
         source: str,
         now_mono: float,
         transcription_id: Optional[str] = None,
+        answer_profile: Optional[str] = None,
     ) -> None:
+        profile = normalize_answer_profile(answer_profile or self.answer_profile)
         kind, cleaned = classify_asr_question_candidate(
             pub,
             getattr(cfg, "transcription_min_sig_chars", 2),
@@ -242,6 +251,7 @@ class AssistAsrStateMachine:
             self.pending_group.utterances.append(cleaned)
             self.pending_group.last_mono = now_mono
             self.pending_group.source = source
+            self.pending_group.answer_profile = profile
             return
         self.try_flush_question_group(cfg, session, now_mono, False)
         if kind == "ignore" and self.pending_group is None:
@@ -251,6 +261,7 @@ class AssistAsrStateMachine:
         if self.pending_group is None:
             self.pending_group = PendingASRGroup(
                 source=source,
+                answer_profile=profile,
                 utterances=[cleaned],
                 first_mono=now_mono,
                 last_mono=now_mono,
@@ -276,6 +287,7 @@ class AssistAsrStateMachine:
                 group.utterances.append(cleaned)
             group.last_mono = now_mono
             group.source = source
+            group.answer_profile = profile
             group.has_promote = group.has_promote or kind == "promote"
             group.tail_kind = kind
             group.tail_dangling = dangling

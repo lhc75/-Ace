@@ -27,6 +27,11 @@ from services.stt import (
     transcription_for_publish,
     postprocess_interview_transcription,
 )
+from services.llm import (
+    ANSWER_PROFILE_AI_INTERVIEW,
+    ANSWER_PROFILE_ASSIST,
+    normalize_answer_profile,
+)
 from services.stt.aliyun import AliyunSTTError
 from services.stt.aliyun_streaming import AliyunInterviewerStream
 from services.stt.engines import GenericHTTPSTT, _audio_to_pcm_int16
@@ -1130,14 +1135,22 @@ def _is_valid_device_id(value: Any) -> bool:
         return False
 
 
-def start_nonblocking(device_id: Optional[int] = None, candidate_mic_device_id: Optional[int] = None):
+def start_nonblocking(
+    device_id: Optional[int] = None,
+    candidate_mic_device_id: Optional[int] = None,
+    answer_profile: str = ANSWER_PROFILE_ASSIST,
+):
     with _interview_control_lock:
-        return _start_nonblocking_locked(device_id, candidate_mic_device_id)
+        return _start_nonblocking_locked(
+            device_id,
+            candidate_mic_device_id,
+            normalize_answer_profile(answer_profile),
+        )
 
 
-def start_mobile_capture() -> None:
+def start_mobile_capture(answer_profile: str = ANSWER_PROFILE_AI_INTERVIEW) -> None:
     """Start an AI-interview session whose interviewer audio arrives over WS."""
-    start_nonblocking(None, None)
+    start_nonblocking(None, None, normalize_answer_profile(answer_profile))
 
 
 def ingest_mobile_transcription(text: str) -> bool:
@@ -1175,7 +1188,11 @@ def ingest_mobile_transcription(text: str) -> bool:
     return True
 
 
-def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id: Optional[int]):
+def _start_nonblocking_locked(
+    device_id: Optional[int],
+    candidate_mic_device_id: Optional[int],
+    answer_profile: str = ANSWER_PROFILE_ASSIST,
+):
     global _recording_generation
     global _interview_thread, _candidate_thread
     stop_interview_loop()
@@ -1186,6 +1203,7 @@ def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id:
         _stop_event.clear()
         _pause_event.clear()
         _candidate_flush_event.clear()
+        _asr_state.set_answer_profile(answer_profile)
 
     session = get_session()
     capture_is_loopback = bool(getattr(session, "capture_is_loopback", False))
@@ -1260,7 +1278,10 @@ def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id:
         interviewer_device_id=device_id,
         candidate_device_id=review_candidate_device_id,
         candidate_asr_enabled=bool(getattr(cfg, "candidate_asr_enabled", False)),
-        written_exam_mode=bool(getattr(cfg, "written_exam_mode", False)),
+        written_exam_mode=(
+            bool(getattr(cfg, "written_exam_mode", False))
+            and answer_profile != ANSWER_PROFILE_AI_INTERVIEW
+        ),
     )
 
 

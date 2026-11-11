@@ -59,6 +59,25 @@ def test_api_start_rejects_non_integer_device_id():
     assert "device_id" in str(exc_info.value.detail)
 
 
+def test_mobile_capture_start_defaults_to_ai_interview_profile(monkeypatch: pytest.MonkeyPatch):
+    profiles = []
+
+    async def fake_run_in_threadpool(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    monkeypatch.setattr(
+        assist_routes,
+        "start_mobile_capture",
+        lambda answer_profile: profiles.append(answer_profile),
+    )
+    monkeypatch.setattr(assist_routes, "run_in_threadpool", fake_run_in_threadpool)
+
+    result = asyncio.run(assist_routes.api_mobile_capture_start(None))
+
+    assert result == {"ok": True}
+    assert profiles == ["ai_interview"]
+
+
 def test_api_ask_returns_error_when_no_answer_model_available(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(assist_routes, "submit_answer_task", lambda task: False)
 
@@ -69,6 +88,27 @@ def test_api_ask_returns_error_when_no_answer_model_available(monkeypatch: pytes
 
     assert exc_info.value.status_code == 503
     assert "模型" in str(exc_info.value.detail)
+
+
+def test_api_ask_carries_ai_interview_answer_profile(monkeypatch: pytest.MonkeyPatch):
+    submitted = []
+    monkeypatch.setattr(
+        assist_routes,
+        "submit_answer_task",
+        lambda task: submitted.append(task) or True,
+    )
+
+    result = asyncio.run(
+        assist_routes.api_ask(
+            assist_routes.ManualQuestion(
+                text="请举一个体现领导力的例子",
+                answer_profile="ai_interview",
+            )
+        )
+    )
+
+    assert result == {"ok": True}
+    assert submitted[0][4]["answer_profile"] == "ai_interview"
 
 
 def test_api_ask_replacement_keeps_original_qa_id_without_global_cancel(

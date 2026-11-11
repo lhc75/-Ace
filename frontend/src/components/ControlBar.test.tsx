@@ -199,7 +199,11 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送问题' }))
 
     await waitFor(() => {
-      expect(apiMock.ask).toHaveBeenCalledWith('', 'data:image/png;base64,xxx')
+      expect(apiMock.ask).toHaveBeenCalledWith(
+        '',
+        'data:image/png;base64,xxx',
+        { answerProfile: 'assist' },
+      )
     })
   })
 
@@ -215,7 +219,7 @@ describe('ControlBar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /开始笔试/ }))
 
-    await waitFor(() => expect(apiMock.start).toHaveBeenCalledWith(null, null))
+    await waitFor(() => expect(apiMock.start).toHaveBeenCalledWith(null, null, 'assist'))
     expect(window.electronAPI?.syncOverlayWindow).toHaveBeenCalledWith(expect.objectContaining({
       enabled: true,
       visible: true,
@@ -455,7 +459,11 @@ describe('ControlBar', () => {
     fireEvent.click(send)
 
     await waitFor(() => {
-      expect(apiMock.ask).toHaveBeenCalledWith('解释一下 Redis 持久化', undefined)
+      expect(apiMock.ask).toHaveBeenCalledWith(
+        '解释一下 Redis 持久化',
+        undefined,
+        { answerProfile: 'assist' },
+      )
     })
     await waitFor(() => {
       expect(send).toBeDisabled()
@@ -558,7 +566,47 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
 
     await waitFor(() => {
-      expect(apiMock.start).toHaveBeenCalledWith(10, 11)
+      expect(apiMock.start).toHaveBeenCalledWith(10, 11, 'assist')
+    })
+  })
+
+  it('starts AI interview with the dedicated answer profile and requests system picture-in-picture', async () => {
+    const pipRequest = vi.fn()
+    window.addEventListener('interview-overlay-pip-request', pipRequest)
+    useInterviewStore.setState({
+      config: {
+        ...(useInterviewStore.getState().config as object),
+        candidate_asr_enabled: true,
+      },
+      devices: [
+        { id: 10, name: 'System Loopback', channels: 2, is_loopback: true, host_api: 'Core Audio' },
+        { id: 11, name: 'USB Mic', channels: 1, is_loopback: false, host_api: 'Core Audio' },
+      ],
+    } as any)
+
+    render(<ControlBar forceInterviewMode />)
+    fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
+
+    await waitFor(() => {
+      expect(apiMock.start).toHaveBeenCalledWith(10, 11, 'ai_interview')
+    })
+    expect(pipRequest).toHaveBeenCalledTimes(1)
+    window.removeEventListener('interview-overlay-pip-request', pipRequest)
+  })
+
+  it('submits manual AI interview questions with the dedicated answer profile', async () => {
+    render(<ControlBar forceInterviewMode />)
+    fireEvent.change(screen.getByPlaceholderText('输入问题，Enter 发送…'), {
+      target: { value: '请举一个体现领导力的例子' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '发送问题' }))
+
+    await waitFor(() => {
+      expect(apiMock.ask).toHaveBeenCalledWith(
+        '请举一个体现领导力的例子',
+        undefined,
+        { answerProfile: 'ai_interview' },
+      )
     })
   })
 
@@ -576,7 +624,7 @@ describe('ControlBar', () => {
     fireEvent.click(start)
 
     await waitFor(() => {
-      expect(apiMock.start).toHaveBeenCalledWith(1, null)
+      expect(apiMock.start).toHaveBeenCalledWith(1, null, 'assist')
     })
     expect(apiMock.start).toHaveBeenCalledTimes(1)
     expect(start).toBeDisabled()
@@ -613,7 +661,7 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
 
     await waitFor(() => {
-      expect(apiMock.start).toHaveBeenCalledWith(11, 12)
+      expect(apiMock.start).toHaveBeenCalledWith(11, 12, 'assist')
     })
   })
 
@@ -634,7 +682,7 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
 
     await waitFor(() => {
-      expect(apiMock.start).toHaveBeenCalledWith(11, null)
+      expect(apiMock.start).toHaveBeenCalledWith(11, null, 'assist')
     })
   })
 
@@ -656,7 +704,7 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: '开始面试' }))
 
     await waitFor(() => {
-      expect(apiMock.start).toHaveBeenCalledWith(10, null)
+      expect(apiMock.start).toHaveBeenCalledWith(10, null, 'assist')
     })
   })
 

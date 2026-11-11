@@ -102,12 +102,13 @@ test.describe('written exam flow', () => {
 
     expect(requests).toEqual([
       { pathname: '/api/exam-preflight/run', method: 'POST', body: {} },
-      { pathname: '/api/start', method: 'POST', body: {} },
+      { pathname: '/api/start', method: 'POST', body: { answer_profile: 'assist' } },
       {
         pathname: '/api/ask',
         method: 'POST',
         body: {
           text: '代码题：给定整数数组 nums 和目标值 target，返回两数之和的下标。',
+          answer_profile: 'assist',
         },
       },
     ])

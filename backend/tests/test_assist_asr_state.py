@@ -69,8 +69,37 @@ def test_question_group_flush_submits_asr_task_with_turn_metadata():
     assert meta["asr_turn_id"] == 7
     assert meta["utterances"] == ["Redis 持久化讲一下"]
     assert meta["high_churn_short_answer"] is False
+    assert meta["answer_profile"] == "assist"
     assert recorded == [10.0]
     assert state.pending_group is None
+
+
+def test_ai_interview_asr_questions_keep_the_dedicated_answer_profile():
+    submitted: list[tuple] = []
+    state = AssistAsrStateMachine(
+        broadcast=lambda _data: None,
+        submit_answer_task=lambda task: submitted.append(task) or True,
+        begin_asr_turn=lambda: 1,
+        record_asr_turn=lambda _now: None,
+        is_high_churn_submission=lambda _cfg, _now: False,
+        logger=_Logger(),
+        clock=lambda: 10.0,
+    )
+    state.set_answer_profile("ai_interview")
+    session = reset_session()
+
+    state.handle_auto_detect_asr_text(
+        _cfg(),
+        session,
+        "请举一个体现领导力的例子",
+        "mobile_ai_interview",
+        now_mono=0.0,
+    )
+    state.flush_question_group_now(_cfg(), session)
+
+    assert len(submitted) == 1
+    assert submitted[0][3] == "mobile_ai_interview"
+    assert submitted[0][4]["answer_profile"] == "ai_interview"
 
 
 def test_cost_where_question_is_submitted_as_an_asr_task():

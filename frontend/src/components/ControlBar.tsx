@@ -20,6 +20,7 @@ import { useInterviewStore } from '@/stores/configStore'
 import { useUiPrefsStore } from '@/stores/uiPrefsStore'
 import { api, getErrorMessage } from '@/lib/api'
 import { showExamOverlayPrompt } from '@/lib/examOverlay'
+import { requestInterviewOverlayPip } from '@/lib/interviewOverlay'
 import { ResumeMountInline } from '@/components/resume/ResumeMount'
 import { ModelPriorityDropdown } from '@/components/app/ModelPriorityDropdown'
 import { AudioDevicePicker } from './control-bar/AudioDevicePicker'
@@ -313,12 +314,14 @@ export default function ControlBar({ forceInterviewMode = false }: { forceInterv
   const handleStart = useCallback(async () => {
     if (lifecycleActionRef.current) return
     if (!isExamMode && selectedDevice === null) { setError('请先选择音频设备'); return }
+    if (forceInterviewMode) requestInterviewOverlayPip()
     lifecycleActionRef.current = true
     setLoading(true); setError(null)
     try {
       await api.start(
         isExamMode ? null : selectedDevice,
         effectiveCandidateMic,
+        forceInterviewMode ? 'ai_interview' : 'assist',
       )
       if (isExamMode) {
         showExamOverlayPrompt()
@@ -347,7 +350,7 @@ export default function ControlBar({ forceInterviewMode = false }: { forceInterv
       lifecycleActionRef.current = false
       setLoading(false)
     }
-  }, [selectedDevice, effectiveCandidateMic, isExamMode])
+  }, [selectedDevice, effectiveCandidateMic, isExamMode, forceInterviewMode])
   const handleStop = useCallback(async () => {
     if (lifecycleActionRef.current) return
     if (isRecording && !window.confirm(isExamMode ? '结束本次笔试？当前答案会保留在页面上。' : '结束本次面试？将停止录音，当前转录与答案会保留在页面上。')) return
@@ -459,7 +462,9 @@ export default function ControlBar({ forceInterviewMode = false }: { forceInterv
     askingRef.current = true
     setAsking(true)
     try {
-      await api.ask(manualQuestion.trim(), pastedImage || undefined)
+      await api.ask(manualQuestion.trim(), pastedImage || undefined, {
+        answerProfile: forceInterviewMode ? 'ai_interview' : 'assist',
+      })
       setManualQuestion('')
       setPastedImage(null)
     } catch (e: unknown) {
@@ -468,7 +473,7 @@ export default function ControlBar({ forceInterviewMode = false }: { forceInterv
       askingRef.current = false
       setAsking(false)
     }
-  }, [manualQuestion, pastedImage, askBlockReason, isPaused])
+  }, [manualQuestion, pastedImage, askBlockReason, isPaused, forceInterviewMode])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (isComposingRef.current) return

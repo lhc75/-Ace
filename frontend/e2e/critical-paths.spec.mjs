@@ -119,6 +119,46 @@ test.describe('app shell', () => {
     await expect.poll(() => page.evaluate(() => window.__interviewPipRequested)).toBe(true)
   })
 
+  test('mobile capture start reuses the click gesture to enter system picture-in-picture', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => {
+      localStorage.setItem('ia_overlay_enabled', '1')
+      window.__pipGestureRequests = 0
+      window.addEventListener('interview-overlay-pip-request', () => {
+        window.__pipGestureRequests += 1
+      })
+      Object.defineProperty(document, 'pictureInPictureEnabled', {
+        configurable: true,
+        value: true,
+      })
+      Object.defineProperty(HTMLCanvasElement.prototype, 'captureStream', {
+        configurable: true,
+        value: () => new MediaStream(),
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'play', {
+        configurable: true,
+        value: async () => undefined,
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'requestPictureInPicture', {
+        configurable: true,
+        value: async () => undefined,
+      })
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            throw new Error('test capture blocked')
+          },
+        },
+      })
+    })
+    await page.goto('/?mobile=1&mode=ai-interview')
+
+    await page.getByRole('button', { name: '开始采集' }).click()
+
+    await expect.poll(() => page.evaluate(() => window.__pipGestureRequests)).toBe(1)
+  })
+
   test('does not log uncaught errors during initial render', async ({ page }) => {
     /** @type {string[]} */
     const errors = []

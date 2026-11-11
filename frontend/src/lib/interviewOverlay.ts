@@ -34,6 +34,13 @@ export const INTERVIEW_OVERLAY_STORAGE_KEYS = {
   maxLines: 'ia_overlay_max_lines',
 } as const
 
+export const INTERVIEW_OVERLAY_PIP_REQUEST_EVENT = 'interview-overlay-pip-request'
+
+export function requestInterviewOverlayPip() {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(INTERVIEW_OVERLAY_PIP_REQUEST_EVENT))
+}
+
 const INTERVIEW_OVERLAY_STORAGE_KEY_SET = new Set<string>(Object.values(INTERVIEW_OVERLAY_STORAGE_KEYS))
 
 export function isOverlayMode(value: unknown): value is OverlayMode {

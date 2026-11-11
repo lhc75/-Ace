@@ -200,17 +200,22 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ summary }),
     }),
-  start: (device_id?: number | null, candidate_mic_device_id?: number | null) =>
+  start: (
+    device_id?: number | null,
+    candidate_mic_device_id?: number | null,
+    answer_profile: 'assist' | 'ai_interview' = 'assist',
+  ) =>
     request('/api/start', {
       method: 'POST',
       body: JSON.stringify({
         ...(device_id != null ? { device_id } : {}),
         ...(candidate_mic_device_id != null ? { candidate_mic_device_id } : {}),
+        answer_profile,
       }),
     }),
-  mobileCaptureStart: () => request<{ ok: boolean }>('/api/mobile-capture/start', {
+  mobileCaptureStart: (answer_profile: 'assist' | 'ai_interview' = 'ai_interview') => request<{ ok: boolean }>('/api/mobile-capture/start', {
     method: 'POST',
-    body: '{}',
+    body: JSON.stringify({ answer_profile }),
   }),
   mobileCaptureStatus: () => request<{
     active: boolean
@@ -230,13 +235,21 @@ export const api = {
     }),
   }),
   clear: () => request('/api/clear', { method: 'POST' }),
-  ask: (text: string, image?: string, options?: { replaceQaId?: string }) =>
+  ask: (
+    text: string,
+    image?: string,
+    options?: {
+      replaceQaId?: string
+      answerProfile?: 'assist' | 'ai_interview'
+    },
+  ) =>
     request('/api/ask', {
       method: 'POST',
       body: JSON.stringify({
         text,
         image,
         ...(options?.replaceQaId ? { replace_qa_id: options.replaceQaId } : {}),
+        ...(options?.answerProfile ? { answer_profile: options.answerProfile } : {}),
       }),
     }),
   cancelAsk: () => request('/api/ask/cancel', { method: 'POST' }),

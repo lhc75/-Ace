@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Eye, PictureInPicture2, X } from 'lucide-react'
 import AnswerMarkdownContent from '@/components/AnswerMarkdownContent'
+import { INTERVIEW_OVERLAY_PIP_REQUEST_EVENT } from '@/lib/interviewOverlay'
 import { useInterviewStore } from '@/stores/configStore'
 import { useUiPrefsStore } from '@/stores/uiPrefsStore'
 
@@ -97,7 +98,7 @@ export default function MobileInterviewOverlay() {
         return false
       }
       if (document.pictureInPictureElement === video) return true
-      await video.play().catch(() => undefined)
+      void video.play().catch(() => undefined)
       await video.requestPictureInPicture()
       setPipActive(true)
       return true
@@ -206,6 +207,21 @@ export default function MobileInterviewOverlay() {
   }, [enterPip, exitPip])
 
   useEffect(() => {
+    const onPipRequest = () => {
+      if (enabled) void enterPip()
+    }
+    const onVisibilityChange = () => {
+      if (enabled && document.visibilityState === 'hidden') void enterPip()
+    }
+    window.addEventListener(INTERVIEW_OVERLAY_PIP_REQUEST_EVENT, onPipRequest)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener(INTERVIEW_OVERLAY_PIP_REQUEST_EVENT, onPipRequest)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [enabled, enterPip])
+
+  useEffect(() => {
     if (!enabled) void exitPip()
   }, [enabled, exitPip])
 
@@ -246,7 +262,7 @@ export default function MobileInterviewOverlay() {
           role="dialog"
           aria-label="悬浮提示窗"
           data-testid="mobile-floating-answer"
-          className={`fixed inset-x-2.5 top-[4.5rem] z-40 ml-auto flex flex-col overflow-hidden rounded-xl border shadow-2xl ${
+          className={`fixed inset-x-2.5 top-[7.75rem] z-40 ml-auto flex flex-col overflow-hidden rounded-xl border shadow-2xl ${
             overlayMode === 'prompt'
               ? 'border-transparent'
               : overlayMode === 'focus'
@@ -274,11 +290,14 @@ export default function MobileInterviewOverlay() {
                   if (pipActive) void exitPip()
                   else void enterPip()
                 }}
-                className="inline-flex size-7 items-center justify-center rounded-md hover:bg-white/10"
+                className="inline-flex h-7 items-center justify-center gap-1 rounded-md px-1.5 hover:bg-white/10"
                 aria-label={pipActive ? '退出系统悬浮窗' : '打开系统悬浮窗'}
                 title={pipActive ? '退出系统悬浮窗' : '打开系统悬浮窗'}
               >
                 <PictureInPicture2 className="h-4 w-4" />
+                <span className="text-[10px] font-medium">
+                  {pipActive ? '返回浏览器' : '跨 App 悬浮'}
+                </span>
               </button>
             )}
             <button
