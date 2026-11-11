@@ -93,7 +93,9 @@ def main() -> None:
                     stdout=stdout_file,
                     stderr=stderr_file,
                     text=True,
-                    timeout=45,
+                    # First launch of a freshly collected bundle can be delayed
+                    # while macOS/Windows scans all native files.
+                    timeout=120,
                     check=False,
                 )
                 stdout_file.seek(0)
