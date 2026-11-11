@@ -3,7 +3,7 @@
 
 import time
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from core.ai_interview_session import (
@@ -46,6 +46,11 @@ class SubmitAnswerRequest(BaseModel):
     star_action: Optional[str] = Field(default=None, max_length=2000)
     star_result: Optional[str] = Field(default=None, max_length=2000)
     time_used_seconds: float = Field(default=0.0, ge=0)
+
+
+class StarCompletionRequest(BaseModel):
+    """检查STAR模板完成情况请求"""
+    answer_text: str = Field(..., max_length=10000)
 
 
 @router.post("/start")
@@ -193,10 +198,10 @@ async def submit_answer(req: SubmitAnswerRequest):
 
 
 @router.post("/check-star")
-async def check_star_completion(answer_text: str = Field(..., max_length=10000)):
+async def check_star_completion(req: StarCompletionRequest):
     """检查STAR模板完成情况"""
     try:
-        result = guide_star_completion(answer_text)
+        result = guide_star_completion(req.answer_text)
         return {
             "ok": True,
             **result,
@@ -240,7 +245,7 @@ async def reset_ai_interview():
 @router.get("/questions/preview")
 async def preview_questions(
     position: str = "后端开发",
-    count: int = Field(default=10, ge=1, le=50),
+    count: int = Query(default=10, ge=1, le=50),
     difficulty: Optional[str] = None,
 ):
     """预览题库（不创建会话）"""
