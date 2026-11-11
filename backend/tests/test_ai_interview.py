@@ -25,6 +25,11 @@ def test_question_bank_manager():
     questions = manager.get_questions_by_position("后端开发", count=5)
     assert len(questions) > 0
     assert all(isinstance(q, InterviewQuestion) for q in questions)
+    assert [q.id for q in questions[:3]] == [
+        "backend_self_intro_001",
+        "backend_behavior_001",
+        "backend_motivation_001",
+    ]
 
     # 获取不存在的职位，应该返回默认题库
     questions = manager.get_questions_by_position("不存在的职位", count=3)

@@ -30,9 +30,9 @@ _log = get_logger("ai_interview.routes")
 class StartAIInterviewRequest(BaseModel):
     """开始AI面试请求"""
     position: str = Field(default="后端开发", max_length=50)
-    question_count: int = Field(default=5, ge=1, le=20)
+    question_count: int = Field(default=3, ge=1, le=20)
     difficulty: Optional[str] = Field(default=None, pattern="^(easy|medium|hard)$")
-    total_time_minutes: int = Field(default=60, ge=10, le=180)
+    total_time_minutes: int = Field(default=15, ge=10, le=180)
     enable_star_guide: bool = True
     show_timer: bool = True
 
@@ -264,20 +264,23 @@ async def preview_questions(
 
 def _get_guide_message(position: str) -> str:
     """获取开场引导语"""
-    return f"""欢迎参加 {position} AI模拟面试！
+    return f"""欢迎参加 {position} AI模拟面试。
 
-本次面试流程：
-1. 系统会依次提出面试问题
-2. 您可以通过语音或文字回答
-3. 系统会实时评分并给出改进建议
-4. 项目经历类问题会引导您使用STAR模板回答
+本轮按真实 AI 面试的五维标准训练：沟通表达、逻辑思维、岗位匹配、动机稳定性、情绪状态。
 
-评分标准：
-• 3分：基本回答，覆盖部分要点
-• 4分：较为充分，覆盖主要要点
-• 5分：完善回答，覆盖所有要点并有深度
+三类高频题：
+1. 自我介绍：标签开场 -> 两段匹配经历 -> 一句动机收尾。准备 60 秒和 90 秒两版。
+2. 行为经历：按 STAR 作答，结果必须有数字；失败题要讲学到什么、后来怎么改。
+3. 情景与动机：先稳住局面 -> 找原因 -> 给方案。动机题必须带入公司具体业务关键词。
 
-准备好了就点击"下一题"开始吧！"""
+提交前自检：
+• 开口 10 秒内给出结论
+• 使用“第一、第二、第三”组织表达
+• 结果里有具体数字
+• 主动带入至少 3 个 JD 关键词
+• 语速平稳，眼神尽量看镜头
+
+准备好了就进入第 1 题。"""
 
 
 def _generate_summary(session: AIInterviewSession) -> dict:

@@ -482,11 +482,6 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
               />
             </div>
 
-            {appMode === 'ai-interview' && (
-              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-gray-500">加载中...</div></div>}>
-                <AIInterviewMode />
-              </Suspense>
-            )}
             {appMode === 'assist' && (
               <button
                 type="button"
@@ -643,6 +638,13 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
 
             <ControlBar />
           </>
+        )}
+
+        {/* ── AI Interview Mode ── */}
+        {appMode === 'ai-interview' && (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-text-muted">加载 AI 面试中…</div>}>
+            <AIInterviewMode />
+          </Suspense>
         )}
 
         {/* ── Review Mode ── */}

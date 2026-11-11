@@ -28,9 +28,11 @@ class InterviewPhase(str, Enum):
 
 class QuestionType(str, Enum):
     """题目类型"""
+    SELF_INTRO = "self_intro"  # 自我介绍
     TECHNICAL = "technical"  # 技术问题
     PROJECT = "project"  # 项目经历（需要STAR）
     BEHAVIORAL = "behavioral"  # 行为面试
+    MOTIVATION = "motivation"  # 求职动机
     ALGORITHM = "algorithm"  # 算法题
     SYSTEM_DESIGN = "system_design"  # 系统设计
 

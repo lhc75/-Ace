@@ -1,6 +1,13 @@
 // AI面试相关类型定义
 
-export type QuestionType = 'technical' | 'project' | 'behavioral' | 'algorithm' | 'system_design'
+export type QuestionType =
+  | 'self_intro'
+  | 'technical'
+  | 'project'
+  | 'behavioral'
+  | 'motivation'
+  | 'algorithm'
+  | 'system_design'
 
 export type InterviewPhase = 'init' | 'guide' | 'questioning' | 'answering' | 'scoring' | 'feedback' | 'completed'
 

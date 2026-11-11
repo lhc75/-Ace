@@ -37,6 +37,22 @@ class QuestionBankManager:
     def _get_default_backend_questions(self) -> list[InterviewQuestion]:
         """获取默认后端开发题库"""
         return [
+            # 开场自我介绍（60秒/90秒双版本）
+            InterviewQuestion(
+                id="backend_self_intro_001",
+                type=QuestionType.SELF_INTRO,
+                content="请用 60 秒做一次自我介绍，并说明你的经历与目标岗位为什么匹配。",
+                category="自我介绍",
+                difficulty="easy",
+                time_limit_seconds=180,
+                key_points=[
+                    "一句话标签定位",
+                    "两段与岗位匹配的经历",
+                    "主动带入岗位/JD关键词",
+                    "一句真实动机收尾",
+                    "不复述完整简历",
+                ],
+            ),
             # 技术基础题
             InterviewQuestion(
                 id="backend_001",
@@ -164,6 +180,22 @@ class QuestionBankManager:
                     "对团队的影响",
                 ],
             ),
+            # 求职动机题
+            InterviewQuestion(
+                id="backend_motivation_001",
+                type=QuestionType.MOTIVATION,
+                content="你为什么选择这个行业和岗位？请结合公司业务和你的经历说明。",
+                category="求职动机",
+                difficulty="medium",
+                time_limit_seconds=180,
+                key_points=[
+                    "为什么选择这个行业",
+                    "对公司具体业务的理解",
+                    "个人能力与岗位的匹配",
+                    "真实可信的求职动机",
+                    "至少带入 3 个公司/岗位关键词",
+                ],
+            ),
         ]
 
     def get_questions_by_position(
@@ -186,10 +218,22 @@ class QuestionBankManager:
         if difficulty:
             all_questions = [q for q in all_questions if q.difficulty == difficulty]
 
-        # 打乱并返回指定数量
+        # 默认训练结构优先覆盖三类高频题：自我介绍 -> 行为经历 -> 动机匹配。
         import random
         questions = list(all_questions)
         random.shuffle(questions)
+        priority_ids = [
+            "backend_self_intro_001",
+            "backend_behavior_001",
+            "backend_motivation_001",
+        ]
+        if count >= len(priority_ids):
+            by_id = {q.id: q for q in questions}
+            priority = [by_id[qid] for qid in priority_ids if qid in by_id]
+            if len(priority) == len(priority_ids):
+                priority_set = set(priority_ids)
+                remaining = [q for q in questions if q.id not in priority_set]
+                return priority + remaining[: max(0, count - len(priority))]
         return questions[:count]
 
     def get_question_by_id(self, question_id: str) -> Optional[InterviewQuestion]:

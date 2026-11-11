@@ -38,6 +38,11 @@ test.describe('app shell', () => {
     await aiInterviewTab.click()
     await expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('heading', { name: 'AI模拟面试' })).toBeVisible({ timeout: 8000 })
+    await expect(page.getByText('AI 在看什么')).toBeVisible()
+    await expect(page.getByText('三类高频题，按这个结构答')).toBeVisible()
+    await expect(page.getByText('AI 视角自检清单')).toBeVisible()
+    await expect(page.getByLabel('题目数量')).toHaveValue('3')
+    await expect(page.getByLabel(/总时长/)).toHaveValue('15')
 
     await reviewTab.click()
     await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
@@ -64,6 +69,63 @@ test.describe('app shell', () => {
     await page.getByRole('menuitem', { name: 'AI面试' }).click()
 
     await expect(page.getByRole('heading', { name: 'AI模拟面试' })).toBeVisible({ timeout: 8000 })
+  })
+
+  test('AI interview follows the structured 3-question training flow', async ({ context, page }) => {
+    const question = {
+      id: 'backend_self_intro_001',
+      type: 'self_intro',
+      content: '请用 60 秒做一次自我介绍，并说明你的经历与目标岗位为什么匹配。',
+      category: '自我介绍',
+      difficulty: 'easy',
+      time_limit_seconds: 180,
+      requires_star: false,
+      key_points: ['一句话标签定位', '两段匹配经历', '一句动机收尾'],
+      reference_answer: '',
+    }
+    const session = {
+      session_id: 'mock-ai-session',
+      phase: 'guide',
+      current_question_index: -1,
+      questions: [question],
+      answers: [],
+      position: '后端开发',
+      total_time_limit_seconds: 900,
+      show_timer: true,
+      enable_star_guide: true,
+      start_time: Math.floor(Date.now() / 1000),
+      is_active: true,
+      total_score: 0,
+      average_score: 0,
+      elapsed_time: 0,
+      remaining_time: 900,
+    }
+
+    await installMocks(context, {
+      messages: COMMON_WS_BOOTSTRAP,
+      apiOverrides: {
+        'POST /api/ai-interview/start': {
+          ok: true,
+          session,
+          guide_message: '本次按自我介绍、行为经历、动机匹配三题训练。',
+        },
+        'POST /api/ai-interview/next-question': {
+          ok: true,
+          has_more: true,
+          question,
+          session: { ...session, phase: 'questioning', current_question_index: 0 },
+        },
+      },
+    })
+
+    await page.goto('/')
+    await page.getByRole('tab', { name: 'AI面试' }).click()
+    await page.getByRole('button', { name: '开始 15 分钟训练' }).click()
+    await expect(page.getByRole('heading', { name: '开始前，先看评分规则' })).toBeVisible()
+    await page.getByRole('button', { name: /进入第 1 题/ }).click()
+    await expect(page.getByText(question.content)).toBeVisible()
+    await expect(page.getByText('自我介绍：标签开场，不背简历')).toBeVisible()
+    await expect(page.getByLabel('面试回答')).toBeVisible()
   })
 
   test('does not log uncaught errors during initial render', async ({ page }) => {
