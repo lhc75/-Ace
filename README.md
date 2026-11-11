@@ -24,12 +24,12 @@
 
 ## 下载安装
 
-打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v1.5.0**）。
+打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v1.4.10**）。
 
 下载对应平台的安装包，装好即可使用：
 
-- **macOS（Apple Silicon）**：`InterviewAce-1.5.0-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
-- **Windows（x64）**：`InterviewAce-Setup-1.5.0.exe` 安装版，或 `InterviewAssistant-Portable-1.5.0.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
+- **macOS（Apple Silicon）**：`InterviewAce-1.4.10-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
+- **Windows（x64）**：`InterviewAce-Setup-1.4.10.exe` 安装版，或 `InterviewAssistant-Portable-1.4.10.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
 
 > **启动异常排查**：主进程日志在 Windows 的 `%APPDATA%\面试Ace\logs\desktop.log`、macOS 的 `~/Library/Application Support/面试Ace/logs/desktop.log`（后端日志在同目录 `log/` 下）。1.4.5 起 Windows 默认不再启用 `--in-process-gpu`——该开关在部分多显卡/虚拟显示器机器上会导致启动瞬间原生崩溃。若仍遇到「托盘图标一闪就消失」，应用会在下次启动自动降级图形栈重试，也可以设 `IA_SAFE_MODE=1` 以软件渲染启动。
 
