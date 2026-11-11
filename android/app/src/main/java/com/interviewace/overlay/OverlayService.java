@@ -62,7 +62,7 @@ public class OverlayService extends Service {
     private TextView connectionText;
     private TextView titleText;
     private TextView opacityButton;
-    private TextView statusDot;
+    private View statusDot;
     private ScrollView answerScroll;
     private View overlayRoot;
 
