@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { Eye, PictureInPicture2, X } from 'lucide-react'
 import AnswerMarkdownContent from '@/components/AnswerMarkdownContent'
 import { INTERVIEW_OVERLAY_PIP_REQUEST_EVENT } from '@/lib/interviewOverlay'
@@ -43,7 +51,47 @@ function wrapCanvasText(
   return lines
 }
 
-export default function MobileInterviewOverlay() {
+function fitCanvasAnswer(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxHeight: number,
+  preferredSize: number,
+): { lines: string[]; fontSize: number; lineHeight: number } {
+  const minimumSize = 13
+  for (let size = Math.max(minimumSize, preferredSize); size >= minimumSize; size -= 1) {
+    context.font = `500 ${size}px "PingFang SC", "Microsoft YaHei", sans-serif`
+    const lineHeight = Math.max(17, Math.round(size * 1.38))
+    const lines = wrapCanvasText(context, text, maxWidth)
+    if (lines.length * lineHeight <= maxHeight) {
+      return { lines, fontSize: size, lineHeight }
+    }
+  }
+  context.font = `500 ${minimumSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+  return {
+    lines: wrapCanvasText(context, text, maxWidth),
+    fontSize: minimumSize,
+    lineHeight: Math.max(17, Math.round(minimumSize * 1.38)),
+  }
+}
+
+type MobileInterviewOverlayProps = {
+  forceEnabled?: boolean
+  expanded?: boolean
+  showClose?: boolean
+  positionClassName?: string
+  toolbar?: ReactNode
+  title?: string
+}
+
+export default function MobileInterviewOverlay({
+  forceEnabled = false,
+  expanded = false,
+  showClose = true,
+  positionClassName = 'top-[7.75rem]',
+  toolbar,
+  title = 'AI 面试实时答案',
+}: MobileInterviewOverlayProps = {}) {
   const qaPairs = useInterviewStore((s) => s.qaPairs)
   const currentStreamingId = useInterviewStore((s) => s.currentStreamingId)
   const colorScheme = useUiPrefsStore((s) => s.colorScheme)
@@ -57,6 +105,7 @@ export default function MobileInterviewOverlay() {
   const promptMaxWidth = useUiPrefsStore((s) => s.interviewOverlayPromptMaxWidth)
   const maxLines = useUiPrefsStore((s) => s.interviewOverlayMaxLines)
   const setOverlayEnabled = useUiPrefsStore((s) => s.setInterviewOverlayEnabled)
+  const effectiveEnabled = forceEnabled || enabled
 
   const videoRef = useRef<WebkitPictureInPictureVideo | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -154,6 +203,13 @@ export default function MobileInterviewOverlay() {
     const foreground = isFocus ? '#263241' : fontColor
     const background = isFocus ? '#f8fafc' : '#111827'
     const secondary = isFocus ? '#64748b' : '#94a3b8'
+    const fitted = fitCanvasAnswer(
+      context,
+      answerTextForOverlay(displayText),
+      width - 76,
+      height - 182,
+      Math.max(26, Math.min(44, fontSize * 2.1)),
+    )
 
     context.clearRect(0, 0, width, height)
     const gradient = context.createLinearGradient(0, 0, width, height)
@@ -166,20 +222,17 @@ export default function MobileInterviewOverlay() {
     context.fillRect(0, 0, width, 8)
     context.font = '600 28px "PingFang SC", "Microsoft YaHei", sans-serif'
     context.fillStyle = foreground
-    context.fillText('AI 面试实时答案', 38, 62)
+    context.fillText(title, 38, 62)
     context.font = '400 22px "PingFang SC", "Microsoft YaHei", sans-serif'
     context.fillStyle = secondary
     context.fillText(latest ? (currentStreamingId ? '正在同步生成' : '最新回答') : '等待识别', 38, 101)
 
-    context.font = `500 ${Math.max(30, Math.min(46, fontSize * 2.2))}px "PingFang SC", "Microsoft YaHei", sans-serif`
+    context.font = `500 ${fitted.fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
     context.fillStyle = foreground
-    const lines = wrapCanvasText(context, answerTextForOverlay(displayText), width - 76)
-    const lineHeight = Math.max(48, Math.min(72, fontSize * 3.4))
-    const maxVisibleLines = Math.max(1, Math.floor((height - 150) / lineHeight))
-    lines.slice(0, maxVisibleLines).forEach((line, index) => {
-      context.fillText(line, 38, 164 + index * lineHeight)
+    fitted.lines.forEach((line, index) => {
+      context.fillText(line, 38, 164 + index * fitted.lineHeight)
     })
-  }, [currentStreamingId, displayText, fontColor, fontSize, latest, overlayMode])
+  }, [currentStreamingId, displayText, fontColor, fontSize, latest, overlayMode, title])
 
   useEffect(() => {
     const video = videoRef.current
@@ -208,10 +261,10 @@ export default function MobileInterviewOverlay() {
 
   useEffect(() => {
     const onPipRequest = () => {
-      if (enabled) void enterPip()
+      if (effectiveEnabled) void enterPip()
     }
     const onVisibilityChange = () => {
-      if (enabled && document.visibilityState === 'hidden') void enterPip()
+      if (effectiveEnabled && document.visibilityState === 'hidden') void enterPip()
     }
     window.addEventListener(INTERVIEW_OVERLAY_PIP_REQUEST_EVENT, onPipRequest)
     document.addEventListener('visibilitychange', onVisibilityChange)
@@ -219,11 +272,11 @@ export default function MobileInterviewOverlay() {
       window.removeEventListener(INTERVIEW_OVERLAY_PIP_REQUEST_EVENT, onPipRequest)
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [enabled, enterPip])
+  }, [effectiveEnabled, enterPip])
 
   useEffect(() => {
-    if (!enabled) void exitPip()
-  }, [enabled, exitPip])
+    if (!effectiveEnabled) void exitPip()
+  }, [effectiveEnabled, exitPip])
 
   useEffect(() => () => {
     if (videoRef.current && document.pictureInPictureElement === videoRef.current) {
@@ -248,21 +301,28 @@ export default function MobileInterviewOverlay() {
         : `rgba(15, 23, 42, ${opacity})`,
     backdropFilter: overlayMode === 'glass' ? 'blur(18px)' : undefined,
     WebkitBackdropFilter: overlayMode === 'glass' ? 'blur(18px)' : undefined,
-    maxHeight: overlayMode === 'focus' ? `${focusHeightPct}dvh` : '46dvh',
+    height: expanded ? 'calc(100dvh - 2rem)' : undefined,
+    maxHeight: expanded
+      ? 'calc(100dvh - 2rem)'
+      : overlayMode === 'focus'
+        ? `${focusHeightPct}dvh`
+        : '46dvh',
   }
   const answerStyle: CSSProperties = {
     fontSize: `${fontSize}px`,
-    maxHeight: maxLines > 0 ? `${Math.ceil(fontSize * 1.65 * maxLines)}px` : undefined,
+    maxHeight: !expanded && maxLines > 0
+      ? `${Math.ceil(fontSize * 1.65 * maxLines)}px`
+      : undefined,
   }
 
   return (
     <>
-      {enabled && (
+      {effectiveEnabled && (
         <section
           role="dialog"
           aria-label="悬浮提示窗"
           data-testid="mobile-floating-answer"
-          className={`fixed inset-x-2.5 top-[7.75rem] z-40 ml-auto flex flex-col overflow-hidden rounded-xl border shadow-2xl ${
+          className={`fixed inset-x-2.5 ${positionClassName} z-40 ml-auto flex flex-col overflow-hidden rounded-xl border shadow-2xl ${
             overlayMode === 'prompt'
               ? 'border-transparent'
               : overlayMode === 'focus'
@@ -300,15 +360,18 @@ export default function MobileInterviewOverlay() {
                 </span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setOverlayEnabled(false)}
-              className="inline-flex size-7 items-center justify-center rounded-md hover:bg-white/10"
-              aria-label="关闭悬浮提示窗"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {showClose && (
+              <button
+                type="button"
+                onClick={() => setOverlayEnabled(false)}
+                className="inline-flex size-7 items-center justify-center rounded-md hover:bg-white/10"
+                aria-label="关闭悬浮提示窗"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
+          {toolbar}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5" style={answerStyle}>
             {answer ? (
               <AnswerMarkdownContent answer={answer} colorScheme={colorScheme} stream={Boolean(currentStreamingId)} />
@@ -327,7 +390,7 @@ export default function MobileInterviewOverlay() {
           )}
         </section>
       )}
-      <canvas ref={canvasRef} width={720} height={1000} className="hidden" aria-hidden />
+      <canvas ref={canvasRef} width={720} height={1280} className="hidden" aria-hidden />
       <video
         ref={videoRef}
         className="pointer-events-none fixed h-px w-px opacity-0"

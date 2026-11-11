@@ -74,52 +74,32 @@ test.describe('app shell', () => {
     await expect(page.getByRole('button', { name: '实时转录', exact: true })).toBeVisible()
   })
 
-  test('mobile AI interview exposes capture, devices, and settings-driven overlay', async ({ page }) => {
+  test('mobile scan renders only the answer overlay and mode selector', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.addInitScript(() => localStorage.setItem('ia_overlay_enabled', '1'))
     await page.goto('/?mobile=1&mode=ai-interview')
 
-    await expect(page.getByText('在线 AI 面试')).toBeVisible()
-    await expect(page.getByRole('button', { name: '开始采集' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '选择会议音频设备' })).toBeVisible()
+    await expect(page.getByTestId('mobile-scan-page')).toBeVisible()
     await expect(page.getByTestId('mobile-floating-answer')).toBeVisible()
-    await expect(page.getByRole('button', { name: '关闭悬浮提示窗' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'AI 面试' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', { name: '实时辅助' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '打开设置' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '选择会议音频设备' })).toHaveCount(0)
+    await expect(page.getByText('在线 AI 面试')).toHaveCount(0)
   })
 
-  test('mobile settings toggle opens the overlay and requests system picture-in-picture', async ({ page }) => {
+  test('mobile scan can switch between AI interview and realtime assist without full page controls', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
-    await page.addInitScript(() => {
-      window.__interviewPipRequested = false
-      Object.defineProperty(document, 'pictureInPictureEnabled', {
-        configurable: true,
-        value: true,
-      })
-      Object.defineProperty(HTMLCanvasElement.prototype, 'captureStream', {
-        configurable: true,
-        value: () => new MediaStream(),
-      })
-      Object.defineProperty(HTMLVideoElement.prototype, 'play', {
-        configurable: true,
-        value: async () => undefined,
-      })
-      Object.defineProperty(HTMLVideoElement.prototype, 'requestPictureInPicture', {
-        configurable: true,
-        value: async function requestPictureInPicture() {
-          window.__interviewPipRequested = true
-        },
-      })
-    })
+    await page.addInitScript(() => localStorage.setItem('ia_overlay_enabled', '0'))
     await page.goto('/?mobile=1&mode=ai-interview')
 
-    await page.getByRole('button', { name: '打开设置' }).click()
-    await page.getByRole('button', { name: '工作模式' }).click()
-    await page.getByRole('button', { name: '悬浮提示窗 已关闭' }).click()
-
     await expect(page.getByTestId('mobile-floating-answer')).toBeVisible()
-    await expect.poll(() => page.evaluate(() => window.__interviewPipRequested)).toBe(true)
+    await page.getByRole('tab', { name: '实时辅助' }).click()
+
+    await expect(page.getByRole('tab', { name: '实时辅助' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('button', { name: '打开设置' })).toHaveCount(0)
   })
 
-  test('mobile capture start reuses the click gesture to enter system picture-in-picture', async ({ page }) => {
+  test('mobile scan mode selection reuses the click gesture to enter picture-in-picture', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.addInitScript(() => {
       localStorage.setItem('ia_overlay_enabled', '1')
@@ -143,18 +123,10 @@ test.describe('app shell', () => {
         configurable: true,
         value: async () => undefined,
       })
-      Object.defineProperty(navigator, 'mediaDevices', {
-        configurable: true,
-        value: {
-          getUserMedia: async () => {
-            throw new Error('test capture blocked')
-          },
-        },
-      })
     })
     await page.goto('/?mobile=1&mode=ai-interview')
 
-    await page.getByRole('button', { name: '开始采集' }).click()
+    await page.getByRole('tab', { name: '实时辅助' }).click()
 
     await expect.poll(() => page.evaluate(() => window.__pipGestureRequests)).toBe(1)
   })

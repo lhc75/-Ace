@@ -34,6 +34,7 @@ import { AppToastStack } from '@/components/app/AppToastStack'
 import { BrandMark } from '@/components/app/BrandMark'
 import { InitErrorScreen } from '@/components/app/InitErrorScreen'
 import { UpdateNotifier } from '@/components/app/UpdateNotifier'
+import MobileScanPage from '@/components/mobile/MobileScanPage'
 const ReviewMode = lazy(() => import('@/components/ReviewMode'))
 const KnowledgeMap = lazy(() => import('@/components/KnowledgeMap'))
 const ResumeOptimizer = lazy(() => import('@/components/ResumeOptimizer'))
@@ -51,6 +52,7 @@ const APP_MODE_TABS = [
 
 export default function App() {
   useInterviewWS()
+  const isMobileScanPage = new URLSearchParams(window.location.search).get('mobile') === '1'
   // 精确订阅, 避免 store 任意字段变化(LLM token 流式 / toast 等)触发 App 重渲染
   const { config, toggleSettings, openModelsDrawer } = useInterviewStore(
     useShallow((s) => ({
@@ -271,6 +273,10 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
     : sttLoading
     ? sttActiveProvider === 'whisper' ? 'Whisper 降级加载中…' : 'STT 模型加载中…'
     : 'STT 模型尚未加载,首次录音时会自动加载'
+
+  if (isMobileScanPage) {
+    return <MobileScanPage />
+  }
 
   if (initError) {
     return <InitErrorScreen initError={initError} />

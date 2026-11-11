@@ -80,4 +80,13 @@ describe('MobileInterviewOverlay', () => {
     expect(container.querySelector('video')).toBeInTheDocument()
     expect(container.querySelector('canvas')).toBeInTheDocument()
   })
+
+  it('forces the scan overlay visible in expanded mode without exposing a close control', () => {
+    useUiPrefsStore.setState({ interviewOverlayEnabled: false })
+    render(<MobileInterviewOverlay forceEnabled expanded showClose={false} />)
+
+    const dialog = screen.getByRole('dialog', { name: '悬浮提示窗' })
+    expect(dialog).toHaveStyle({ height: 'calc(100dvh - 2rem)' })
+    expect(screen.queryByRole('button', { name: '关闭悬浮提示窗' })).not.toBeInTheDocument()
+  })
 })
