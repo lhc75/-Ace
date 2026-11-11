@@ -86,6 +86,44 @@ def _check_audio() -> None:
     print(json.dumps(result, indent=2))
 
 
+def _self_test() -> None:
+    """Load the app and native dependencies without waiting for a server port."""
+    import importlib
+    import json
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="interview-ace-self-test-") as temp_dir:
+        # A mounted DMG is read-only. Keep config/log/database writes out of the
+        # app bundle so this command also validates the package before install.
+        os.environ.setdefault("IA_APP_DATA_DIR", temp_dir)
+        os.environ.setdefault("IA_LOG_DIR", os.path.join(temp_dir, "log"))
+        os.makedirs(os.environ["IA_LOG_DIR"], exist_ok=True)
+
+        modules = (
+            "fastapi",
+            "uvicorn",
+            "pydantic",
+            "pydantic_core",
+            "websockets",
+            "numpy",
+            "sounddevice",
+            "faster_whisper",
+            "ctranslate2",
+            "onnxruntime",
+            "tokenizers",
+            "PIL.Image",
+            "pymupdf",
+            "mss",
+        )
+        for module_name in modules:
+            importlib.import_module(module_name)
+
+        # Importing main validates the bundled API/router/data-file graph.
+        from main import app
+
+        print(json.dumps({"status": "ok", "app": app.title}, ensure_ascii=False))
+
+
 def main() -> None:
     _ensure_ca_certs()
     if len(sys.argv) > 1 and sys.argv[1] == "--capture-worker":
@@ -97,6 +135,9 @@ def main() -> None:
         return
     if len(sys.argv) > 1 and sys.argv[1] == "--check-audio":
         _check_audio()
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        _self_test()
         return
 
     import uvicorn

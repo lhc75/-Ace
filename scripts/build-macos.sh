@@ -6,6 +6,8 @@ FRONTEND="$ROOT/frontend"
 DESKTOP="$ROOT/desktop"
 BUILD="$ROOT/build"
 BACKEND_STAGE="$BUILD/backend"
+PYINSTALLER_DIST="$BUILD/pyinstaller-dist"
+PYINSTALLER_WORK="$BUILD/pyinstaller-work"
 ICONSET="$BUILD/interview-assistant.iconset"
 RELEASE_DIR="${MACOS_RELEASE_DIR:-$ROOT/release}"
 # 优先使用本机 Electron 缓存，避免每次打包重新联网下载 Electron。
@@ -63,25 +65,30 @@ step "安装后端依赖"
 if [[ -d "$BACKEND_STAGE" ]]; then
   rm -rf "$BACKEND_STAGE"
 fi
+rm -rf "$PYINSTALLER_DIST" "$PYINSTALLER_WORK"
 mkdir -p "$BACKEND_STAGE"
 
 step "构建 macOS Python 后端（PyInstaller，快速打包）"
 "$PYTHON" -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
-"$PYTHON" -m PyInstaller "$ROOT/packaging/interview-assistant-backend.spec" --clean --noconfirm
+"$PYTHON" -m PyInstaller \
+  "$ROOT/packaging/interview-assistant-backend.spec" \
+  --clean \
+  --noconfirm \
+  --distpath "$PYINSTALLER_DIST" \
+  --workpath "$PYINSTALLER_WORK"
 
-# PyInstaller输出在build/interview-assistant-backend/，需要保持与Nuitka一致的目录结构
-# Electron期望：backend/interview-assistant-backend/interview-assistant-backend
-PYINSTALLER_OUT="$BUILD/interview-assistant-backend"
+# PyInstaller final COLLECT output. Do not use $BUILD/interview-assistant-backend:
+# that is the work directory containing .toc/.pkg intermediates, not the runnable app.
+PYINSTALLER_OUT="$PYINSTALLER_DIST/interview-assistant-backend"
 if [[ ! -d "$PYINSTALLER_OUT" ]]; then
   echo "[ERROR] PyInstaller未生成输出目录: $PYINSTALLER_OUT" >&2
   exit 1
 fi
 
-# 创建目标目录结构
+# Keep the PyInstaller onedir contents under build/backend/interview-assistant-backend,
+# matching desktop/package.json extraResources and desktop/main.js.
 mkdir -p "$BACKEND_STAGE/interview-assistant-backend"
-# 将PyInstaller输出的所有文件移到正确的位置
-mv "$PYINSTALLER_OUT"/* "$BACKEND_STAGE/interview-assistant-backend/"
-rm -rf "$PYINSTALLER_OUT"
+cp -R "$PYINSTALLER_OUT/." "$BACKEND_STAGE/interview-assistant-backend/"
 
 BACKEND_BIN="$BACKEND_STAGE/interview-assistant-backend/interview-assistant-backend"
 if [[ ! -f "$BACKEND_BIN" ]]; then
@@ -89,6 +96,11 @@ if [[ ! -f "$BACKEND_BIN" ]]; then
   exit 1
 fi
 chmod +x "$BACKEND_BIN"
+
+step "校验后端运行目录"
+"$PYTHON" "$ROOT/scripts/verify-backend-bundle.py" \
+  "$BACKEND_STAGE/interview-assistant-backend" \
+  --os mac
 
 if command -v iconutil >/dev/null 2>&1 && command -v sips >/dev/null 2>&1; then
   step "生成 macOS 图标"
@@ -111,6 +123,11 @@ npm --prefix "$DESKTOP" ci
 
 step "生成 macOS .dmg"
 npm --prefix "$DESKTOP" run dist:mac -- --config.directories.output="$RELEASE_DIR" "$@"
+
+step "校验 Electron 安装目录中的后端"
+"$PYTHON" "$ROOT/scripts/verify-backend-bundle.py" \
+  "$RELEASE_DIR/mac-arm64/面试Ace.app/Contents/Resources/backend" \
+  --os mac
 
 # electron-builder 固定会产出 blockmap（差量更新用）和 builder-debug.yml（调试信息），
 # 发布只需要 dmg，打包完直接清掉。

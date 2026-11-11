@@ -1,5 +1,26 @@
 # 修复日志
 
+## 2026-11-11 - 修复安装包后端缺失 v1.5.10
+
+### 🔴 紧急修复
+**PyInstaller 最终产物取错目录，导致安装包内后端无法启动**
+
+**问题原因**：
+- v1.5.7 起 PyInstaller 将可运行产物写入 `dist/` 最终目录
+- 构建脚本误把 `build/` 工作目录中的 `.toc`、`.pkg` 和 bootloader 当成后端
+- v1.5.8、v1.5.9 安装包中的 `Resources/backend` 只有 17 个文件，缺少 Python 运行时和全部原生扩展
+- v1.5.9 的 Electron 路径兼容补丁只能找到可执行文件，无法补齐缺失依赖
+
+**修复内容**：
+- macOS 和 Windows 构建脚本显式使用 PyInstaller `--distpath` 与 `--workpath`
+- 只复制 `dist/interview-assistant-backend` 的最终运行目录
+- 打包 Electron 前强制校验文件数量、原生扩展、Python 运行时和可执行文件启动
+- 检测到 `.toc`、`.pkg` 等中间文件时直接终止发版
+
+### 重要提示
+- **所有 v1.5.7、v1.5.8、v1.5.9 用户请升级到 v1.5.10**
+- 旧版本无法通过配置或账号调整修复，必须安装完整的新安装包
+
 ## 2026-11-12 - 兼容PyInstaller路径结构 v1.5.9
 
 ### 🔧 彻底修复

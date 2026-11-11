@@ -5,6 +5,8 @@ $frontend = Join-Path $root "frontend"
 $desktop = Join-Path $root "desktop"
 $build = Join-Path $root "build"
 $backendStage = Join-Path $build "backend"
+$pyinstallerDist = Join-Path $build "pyinstaller-dist"
+$pyinstallerWork = Join-Path $build "pyinstaller-work"
 
 function Invoke-Step([string]$label, [scriptblock]$action) {
     Write-Host "[...] $label"
@@ -48,26 +50,33 @@ Invoke-Step "安装 Windows 系统音频依赖" {
 if (Test-Path $backendStage) {
     Remove-Item $backendStage -Recurse -Force
 }
+if (Test-Path $pyinstallerDist) {
+    Remove-Item $pyinstallerDist -Recurse -Force
+}
+if (Test-Path $pyinstallerWork) {
+    Remove-Item $pyinstallerWork -Recurse -Force
+}
 New-Item -ItemType Directory -Path $backendStage -Force | Out-Null
 
 Invoke-Step "构建 Python 后端（PyInstaller，快速打包）" {
     & $pythonExe @pythonPrefix -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
-    & $pythonExe @pythonPrefix -m PyInstaller (Join-Path $root "packaging\interview-assistant-backend.spec") --clean --noconfirm
+    & $pythonExe @pythonPrefix -m PyInstaller `
+        (Join-Path $root "packaging\interview-assistant-backend.spec") `
+        --clean `
+        --noconfirm `
+        --distpath $pyinstallerDist `
+        --workpath $pyinstallerWork
 
-    # PyInstaller输出在build\interview-assistant-backend\，需要保持与Nuitka一致的目录结构
-    # Electron期望：backend\interview-assistant-backend\interview-assistant-backend.exe
-    $pyinstallerOut = Join-Path $build "interview-assistant-backend"
+    # PyInstaller final COLLECT output. build\interview-assistant-backend is only
+    # the work directory and contains unusable .toc/.pkg intermediates.
+    $pyinstallerOut = Join-Path $pyinstallerDist "interview-assistant-backend"
     if (-not (Test-Path $pyinstallerOut)) {
         throw "PyInstaller未生成输出目录: $pyinstallerOut"
     }
 
-    # 创建目标目录结构
     $targetDir = Join-Path $backendStage "interview-assistant-backend"
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-
-    # 将PyInstaller输出的所有文件移到正确的位置
-    Get-ChildItem $pyinstallerOut | Move-Item -Destination $targetDir -Force
-    Remove-Item $pyinstallerOut -Force
+    Copy-Item -Path (Join-Path $pyinstallerOut "*") -Destination $targetDir -Recurse -Force
 
     $backendExe = Join-Path $targetDir "interview-assistant-backend.exe"
     if (-not (Test-Path $backendExe)) {
@@ -75,10 +84,22 @@ Invoke-Step "构建 Python 后端（PyInstaller，快速打包）" {
     }
 }
 
+Invoke-Step "校验后端运行目录" {
+    & $pythonExe @pythonPrefix (Join-Path $root "scripts\verify-backend-bundle.py") `
+        (Join-Path $backendStage "interview-assistant-backend") `
+        --os win
+}
+
 Invoke-Step "安装桌面端依赖" { npm --prefix $desktop ci }
 
 Invoke-Step "生成 Windows 安装包和便携版" {
     npm --prefix $desktop run dist:win
+}
+
+Invoke-Step "校验 Electron 安装目录中的后端" {
+    & $pythonExe @pythonPrefix (Join-Path $root "scripts\verify-backend-bundle.py") `
+        (Join-Path $root "release\win-unpacked\resources\backend") `
+        --os win
 }
 
 Write-Host ""
