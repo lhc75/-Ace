@@ -358,7 +358,7 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
        <div className="app-main-card flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* 顶条: 移动端承载品牌/模块菜单/状态, 桌面端显示当前模块 + 全局操作 */}
         <header className="app-drag-region app-topbar flex flex-row items-center justify-between gap-2 px-3 md:px-4 h-12 flex-shrink-0 min-w-0">
-          <div className="flex items-center gap-2 flex-shrink min-w-0 overflow-hidden">
+          <div className="flex min-w-0 flex-shrink items-center gap-2 overflow-visible">
             {/* 移动端: 模块菜单 (品牌标识在桌面侧边栏, 移动端宽度有限不重复展示) */}
             <div className="relative md:hidden" ref={moduleMenuRef}>
               <button

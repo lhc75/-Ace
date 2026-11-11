@@ -37,10 +37,8 @@ test.describe('app shell', () => {
 
     await aiInterviewTab.click()
     await expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
-    await expect(page.getByRole('heading', { name: '在线 AI 面试辅助' })).toBeVisible({ timeout: 8000 })
-    await expect(page.getByText('AI 在看什么')).toBeVisible()
-    await expect(page.getByText('回答格式')).toBeVisible()
-    await expect(page.getByText('AI 视角自检')).toBeVisible()
+    await expect(page.getByTestId('ai-interview-mode')).toBeVisible({ timeout: 8000 })
+    await expect(page.getByRole('button', { name: '选择会议音频设备' })).toBeVisible()
 
     await reviewTab.click()
     await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
@@ -59,7 +57,7 @@ test.describe('app shell', () => {
     await expect(page.getByRole('heading', { name: '求职进度', exact: true })).toBeVisible({ timeout: 8000 })
   })
 
-  test('mobile module menu opens the AI interview page', async ({ page }) => {
+  test('mobile module menu opens AI interview and can switch back', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
 
@@ -68,18 +66,57 @@ test.describe('app shell', () => {
 
     await expect(page.getByText('在线 AI 面试')).toBeVisible({ timeout: 8000 })
     await expect(page.getByRole('button', { name: '开始采集' })).toBeVisible()
-    await expect(page.getByRole('button', { name: '悬浮答案' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '选择会议音频设备' })).toBeVisible()
+
+    await page.getByRole('button', { name: '切换功能模块' }).click()
+    await expect(page.getByRole('menuitem', { name: '实时辅助' })).toBeVisible()
+    await page.getByRole('menuitem', { name: '实时辅助' }).click()
+    await expect(page.getByRole('button', { name: '实时转录', exact: true })).toBeVisible()
   })
 
-  test('mobile AI interview exposes capture and floating answer controls', async ({ page }) => {
+  test('mobile AI interview exposes capture, devices, and settings-driven overlay', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => localStorage.setItem('ia_overlay_enabled', '1'))
     await page.goto('/?mobile=1&mode=ai-interview')
 
     await expect(page.getByText('在线 AI 面试')).toBeVisible()
     await expect(page.getByRole('button', { name: '开始采集' })).toBeVisible()
-    await page.getByRole('button', { name: '悬浮答案' }).click()
-    await expect(page.getByText('实时答案')).toBeVisible()
-    await expect(page.getByRole('button', { name: '关闭悬浮答案' })).toBeVisible()
+    await expect(page.getByRole('button', { name: '选择会议音频设备' })).toBeVisible()
+    await expect(page.getByTestId('mobile-floating-answer')).toBeVisible()
+    await expect(page.getByRole('button', { name: '关闭悬浮提示窗' })).toBeVisible()
+  })
+
+  test('mobile settings toggle opens the overlay and requests system picture-in-picture', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.addInitScript(() => {
+      window.__interviewPipRequested = false
+      Object.defineProperty(document, 'pictureInPictureEnabled', {
+        configurable: true,
+        value: true,
+      })
+      Object.defineProperty(HTMLCanvasElement.prototype, 'captureStream', {
+        configurable: true,
+        value: () => new MediaStream(),
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'play', {
+        configurable: true,
+        value: async () => undefined,
+      })
+      Object.defineProperty(HTMLVideoElement.prototype, 'requestPictureInPicture', {
+        configurable: true,
+        value: async function requestPictureInPicture() {
+          window.__interviewPipRequested = true
+        },
+      })
+    })
+    await page.goto('/?mobile=1&mode=ai-interview')
+
+    await page.getByRole('button', { name: '打开设置' }).click()
+    await page.getByRole('button', { name: '工作模式' }).click()
+    await page.getByRole('button', { name: '悬浮提示窗 已关闭' }).click()
+
+    await expect(page.getByTestId('mobile-floating-answer')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => window.__interviewPipRequested)).toBe(true)
   })
 
   test('does not log uncaught errors during initial render', async ({ page }) => {

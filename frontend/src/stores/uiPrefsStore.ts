@@ -289,6 +289,12 @@ export const useUiPrefsStore = create<UiPrefsState>((set) => ({
   setInterviewOverlayEnabled: (enabled) => {
     persistOverlayPref(KEYS.enabled, enabled ? '1' : '0')
     set({ interviewOverlayEnabled: enabled })
+    // Settings is the single entry point for opening the overlay. A synchronous
+    // event lets the mobile Picture-in-Picture surface consume the same user
+    // gesture before the browser drops activation on the next render.
+    window.dispatchEvent(new CustomEvent('interview-overlay-toggle', {
+      detail: { enabled },
+    }))
   },
   setInterviewOverlayOpacity: (opacity) => {
     const next = clampNumberOrNull(opacity, 0, 1, false) ?? 0.88

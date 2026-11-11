@@ -13,6 +13,27 @@ from core.logger import get_logger
 
 _log = get_logger(__name__)
 
+_QUESTION_FILLERS = (
+    "请介绍一下",
+    "请介绍",
+    "介绍一下",
+    "介绍一个",
+    "介绍",
+    "一个",
+    "你的",
+    "什么是",
+    "是什么",
+    "为什么",
+    "怎么样",
+    "怎么",
+    "如何",
+    "哪些",
+    "请问",
+    "一下",
+    "请",
+    "的",
+)
+
 
 class AnswerScorer:
     """答案评分器"""
@@ -39,7 +60,9 @@ class AnswerScorer:
         )
 
         # 2. 计算相关性
-        score_obj.relevance = self._calculate_relevance(question, answer_text)
+        score_obj.relevance = self._calculate_relevance(
+            question, answer_text, star_data
+        )
 
         # 3. 计算深度
         score_obj.depth = self._calculate_depth(question, answer_text)
@@ -50,7 +73,7 @@ class AnswerScorer:
         )
 
         # 5. 检查具体维度
-        score_obj.has_key_points = self._check_key_points(question, answer_text)
+        score_obj.has_key_points = self._check_key_points(question, answer_text, star_data)
         score_obj.has_examples = self._check_examples(answer_text)
         score_obj.has_quantitative_data = self._check_quantitative_data(answer_text)
         score_obj.length_appropriate = self._check_length(question, answer_text)
@@ -62,7 +85,9 @@ class AnswerScorer:
         score_obj.improvement_suggestions = self._generate_improvements(
             question, answer_text, score_obj
         )
-        score_obj.missing_points = self._find_missing_points(question, answer_text)
+        score_obj.missing_points = self._find_missing_points(
+            question, answer_text, star_data
+        )
 
         return score_obj
 
@@ -85,29 +110,39 @@ class AnswerScorer:
 
         # 关键点覆盖率
         if question.key_points:
+            concept_text = self._concept_text(answer_text, star_data)
             covered = sum(
                 1 for kp in question.key_points
-                if self._contains_concept(answer_text, kp)
+                if self._contains_concept(concept_text, kp)
             )
             key_point_coverage = covered / len(question.key_points)
             completeness = (completeness + key_point_coverage) / 2
 
         return min(1.0, completeness)
 
-    def _calculate_relevance(self, question: InterviewQuestion, answer_text: str) -> float:
+    def _calculate_relevance(
+        self,
+        question: InterviewQuestion,
+        answer_text: str,
+        star_data: Optional[STARTemplate] = None,
+    ) -> float:
         """计算相关性（0-1）"""
         if not answer_text.strip():
             return 0.0
 
-        # 检查是否包含问题中的关键词
-        question_words = set(re.findall(r'[一-龥a-zA-Z]+', question.content.lower()))
-        answer_words = set(re.findall(r'[一-龥a-zA-Z]+', answer_text.lower()))
+        # Keep Latin/technical terms separate from surrounding Chinese text.
+        # Otherwise "什么是Redis" becomes one token and a correct answer that
+        # contains "Redis" is scored as unrelated.
+        question_words = self._question_terms(question.content)
+        answer_lower = answer_text.lower()
 
         if not question_words:
             return 0.8
 
-        overlap = len(question_words & answer_words)
+        overlap = sum(1 for word in question_words if word in answer_lower)
         relevance = overlap / len(question_words)
+        if question.requires_star and star_data and star_data.is_complete():
+            relevance = max(relevance, 0.8)
 
         # 检查是否跑题（包含"不知道"、"没做过"等）
         negative_patterns = [
@@ -169,13 +204,19 @@ class AnswerScorer:
 
         return min(1.0, structure_score)
 
-    def _check_key_points(self, question: InterviewQuestion, answer_text: str) -> bool:
+    def _check_key_points(
+        self,
+        question: InterviewQuestion,
+        answer_text: str,
+        star_data: Optional[STARTemplate] = None,
+    ) -> bool:
         """检查是否包含关键点"""
         if not question.key_points:
             return True
+        concept_text = self._concept_text(answer_text, star_data)
         covered = sum(
             1 for kp in question.key_points
-            if self._contains_concept(answer_text, kp)
+            if self._contains_concept(concept_text, kp)
         )
         return covered >= len(question.key_points) * 0.5
 
@@ -269,13 +310,46 @@ class AnswerScorer:
         self,
         question: InterviewQuestion,
         answer_text: str,
+        star_data: Optional[STARTemplate] = None,
     ) -> list[str]:
         """找出遗漏的关键点"""
+        concept_text = self._concept_text(answer_text, star_data)
         missing = []
         for kp in question.key_points:
-            if not self._contains_concept(answer_text, kp):
+            if not self._contains_concept(concept_text, kp):
                 missing.append(kp)
         return missing
+
+    def _concept_text(
+        self,
+        answer_text: str,
+        star_data: Optional[STARTemplate],
+    ) -> str:
+        """Expand STAR sections with the labels used by question key points."""
+        if not star_data:
+            return answer_text
+        return "\n".join([
+            answer_text,
+            f"情境 背景 {star_data.situation}",
+            f"任务 {star_data.task}",
+            f"行动 技术方案 {star_data.action}",
+            f"结果 成果 {star_data.result}",
+        ])
+
+    def _question_terms(self, text: str) -> set[str]:
+        """Extract intent terms while dropping common Chinese question fillers."""
+        terms: set[str] = set()
+        for token in re.findall(r"[a-zA-Z0-9]+|[\u4e00-\u9fff]+", text.lower()):
+            if re.fullmatch(r"[a-zA-Z0-9]+", token):
+                if len(token) > 1 or token.isdigit():
+                    terms.add(token)
+                continue
+            cleaned = token
+            for filler in _QUESTION_FILLERS:
+                cleaned = cleaned.replace(filler, "")
+            if cleaned:
+                terms.add(cleaned)
+        return terms
 
     def _contains_concept(self, text: str, concept: str) -> bool:
         """检查文本是否包含概念（模糊匹配）"""

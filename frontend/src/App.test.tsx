@@ -125,10 +125,8 @@ describe('App bootstrap', () => {
 
     await waitFor(() => {
       expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
-      expect(screen.getByRole('heading', { name: '在线 AI 面试辅助' })).toBeInTheDocument()
-      expect(screen.getByText('AI 在看什么')).toBeInTheDocument()
-      expect(screen.getByText('回答格式')).toBeInTheDocument()
-      expect(screen.getByText('AI 视角自检')).toBeInTheDocument()
+      expect(screen.getByTestId('ai-interview-mode')).toBeInTheDocument()
+      expect(screen.getByText('controls')).toBeInTheDocument()
     }, { timeout: 5000 })
   })
 
