@@ -33,6 +33,10 @@ ARGS=(
   --jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
   --output-dir="$WORK"
   --output-filename=interview-assistant-backend
+  # 性能优化：LTO链接时优化，减少二进制大小和提升运行速度
+  --lto=yes
+  # 使用clang编译器（macOS默认，但显式指定）
+  --clang
   # 截图 worker 通过 sys.executable --capture-worker 复用同一二进制，入口在函数内，显式包含
   --include-module=services.capture._screen_capture_worker
   # 第三方包的数据文件（词典/模板/随包 dylib 等）

@@ -47,9 +47,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~\AppData\Local\Nuitka
-          key: nuitka-${{ runner.os }}-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.ps1') }}
+          key: nuitka-${{ runner.os }}-py3.11-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.ps1') }}
           restore-keys: |
+            nuitka-${{ runner.os }}-py3.11-
             nuitka-${{ runner.os }}-
+
+      # 缓存Python虚拟环境，加速依赖安装
+      - name: Cache Python virtualenv
+        uses: actions/cache@v4
+        with:
+          path: env
+          key: venv-${{ runner.os }}-py3.11-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            venv-${{ runner.os }}-py3.11-
+            venv-${{ runner.os }}-
 
       - name: Run Windows build script
         run: .\scripts\build-windows.ps1
@@ -94,9 +105,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/Nuitka
-          key: nuitka-${{ runner.os }}-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.sh') }}
+          key: nuitka-${{ runner.os }}-py3.13-${{ hashFiles('backend/requirements.txt', 'scripts/build-backend-nuitka.sh') }}
           restore-keys: |
+            nuitka-${{ runner.os }}-py3.13-
             nuitka-${{ runner.os }}-
+
+      # 缓存Python虚拟环境，加速依赖安装
+      - name: Cache Python virtualenv
+        uses: actions/cache@v4
+        with:
+          path: env
+          key: venv-${{ runner.os }}-py3.13-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            venv-${{ runner.os }}-py3.13-
+            venv-${{ runner.os }}-
 
       # build-macos.sh 会自建 env 虚拟环境、生成 icns 图标，并产出 dmg + zip
       - name: Run macOS build script
