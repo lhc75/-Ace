@@ -3,8 +3,12 @@ playwright-report/
 test-results/
 blob-report/
 
-# ===== CI（仅 release.yml 跟踪入库用于云端打包，其余 workflow 本地保留）=====
-.github/
+# ===== CI（仅云端打包需要的 workflow 入库，其余本地保留）=====
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/release.yml
+!.github/workflows/android-ci.yml
 
 # ===== 发布脚本（含发布流程，本地使用）=====
 scripts/create-github-release.sh

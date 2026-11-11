@@ -1,5 +1,23 @@
 # 修复日志
 
+## 2026-11-11 - Android 原生跨应用悬浮伴侣 v1.5.18
+
+### Android 悬浮助手
+- 新增独立 Android APK，不再受浏览器后台和画中画尺寸限制
+- 内置二维码扫描，直接连接电脑端现有 WebSocket
+- 使用 Android 前台服务和系统悬浮窗权限显示在其他 App 上方
+- 支持拖动、放大/缩小、透明度切换和手指滚动
+- 支持 AI 面试与实时辅助两种模式
+- 支持局域网 HTTP/HTTPS，以及二维码内的 WebSocket 鉴权参数
+
+### iOS
+- iOS 继续使用现有系统画中画，不引入无法覆盖其他 App 的自定义网页浮层
+
+### 发布
+- GitHub Release 新增 `InterviewAce-Overlay-<版本>.apk`
+- Android APK 与 Windows、macOS 产物使用同一版本标签发布
+- 增加 Android CI，执行 Gradle 编译和 Java 单元测试
+
 ## 2026-11-11 - 简短回答全局生效 v1.5.17
 
 ### 回答长度
