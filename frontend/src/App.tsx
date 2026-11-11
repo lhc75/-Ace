@@ -13,6 +13,7 @@ import {
   Radar,
   NotebookPen,
   Briefcase,
+  Trophy,
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useInterviewStore, type AppConfig } from '@/stores/configStore'
@@ -37,9 +38,11 @@ const ReviewMode = lazy(() => import('@/components/ReviewMode'))
 const KnowledgeMap = lazy(() => import('@/components/KnowledgeMap'))
 const ResumeOptimizer = lazy(() => import('@/components/ResumeOptimizer'))
 const JobTracker = lazy(() => import('@/components/JobTracker'))
+const AIInterviewMode = lazy(() => import('@/components/AIInterviewMode'))
 
 const APP_MODE_TABS = [
   ['assist', '实时辅助', AudioLines],
+  ['ai-interview', 'AI面试', Trophy],
   ['review', '面试复盘', History],
   ['knowledge', '能力分析', Radar],
   ['resume-opt', '简历优化', NotebookPen],
@@ -479,6 +482,11 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
               />
             </div>
 
+            {appMode === 'ai-interview' && (
+              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-gray-500">加载中...</div></div>}>
+                <AIInterviewMode />
+              </Suspense>
+            )}
             {appMode === 'assist' && (
               <button
                 type="button"
