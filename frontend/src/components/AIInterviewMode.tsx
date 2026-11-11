@@ -123,11 +123,11 @@ export default function AIInterviewMode() {
       }
 
       // 如果有STAR数据
-      if (showSTARGuide && starGuide?.star) {
-        request.star_situation = starGuide.star.situation
-        request.star_task = starGuide.star.task
-        request.star_action = starGuide.star.action
-        request.star_result = starGuide.star.result
+      if (showSTARGuide && starGuide?.sections) {
+        request.star_situation = starGuide.sections.situation.filled ? currentAnswer : ''
+        request.star_task = starGuide.sections.task.filled ? currentAnswer : ''
+        request.star_action = starGuide.sections.action.filled ? currentAnswer : ''
+        request.star_result = starGuide.sections.result.filled ? currentAnswer : ''
       }
 
       const result = await aiInterviewAPI.submitAnswer(request)
