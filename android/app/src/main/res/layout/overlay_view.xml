@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/overlayRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ace_overlay_bg"
+    android:elevation="18dp"
+    android:orientation="vertical"
+    android:padding="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/ace_overlay_header"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:id="@+id/dragHandle"
+            android:layout_width="26dp"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="⋮⋮"
+            android:textColor="@color/ace_overlay_muted"
+            android:textSize="16sp" />
+
+        <View
+            android:id="@+id/statusDot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/dot_status" />
+
+        <TextView
+            android:id="@+id/titleText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="实时答案"
+            android:textColor="@color/ace_overlay_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/sizeDown"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="−"
+            android:textColor="@color/ace_overlay_text"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/sizeUp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="+"
+            android:textColor="@color/ace_overlay_text"
+            android:textSize="20sp" />
+
+        <TextView
+            android:id="@+id/opacityButton"
+            android:layout_width="42dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="透明"
+            android:textColor="@color/ace_overlay_muted"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/closeButton"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="×"
+            android:textColor="@color/ace_overlay_text"
+            android:textSize="22sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/questionText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12000000"
+        android:maxLines="2"
+        android:paddingStart="12dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="6dp"
+        android:textColor="@color/ace_overlay_muted"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
+    <ScrollView
+        android:id="@+id/answerScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="vertical">
+
+        <TextView
+            android:id="@+id/answerText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="4dp"
+            android:padding="14dp"
+            android:text="等待电脑端 AI 答案…"
+            android:textColor="@color/ace_overlay_text"
+            android:textIsSelectable="true"
+            android:textSize="16sp" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/connectionText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/ace_overlay_header"
+        android:gravity="center"
+        android:padding="5dp"
+        android:text="准备连接"
+        android:textColor="@color/ace_overlay_muted"
+        android:textSize="10sp" />
+</LinearLayout>

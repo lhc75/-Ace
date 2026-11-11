@@ -1,0 +1,12 @@
+<resources>
+    <color name="ace_primary">#0E7C6B</color>
+    <color name="ace_primary_dark">#075E54</color>
+    <color name="ace_background">#F5F7F6</color>
+    <color name="ace_surface">#FFFFFF</color>
+    <color name="ace_text">#16211E</color>
+    <color name="ace_muted">#65736F</color>
+    <color name="ace_overlay_bg">#E6111720</color>
+    <color name="ace_overlay_header">#F2202937</color>
+    <color name="ace_overlay_text">#F3F7F6</color>
+    <color name="ace_overlay_muted">#A9B8B4</color>
+</resources>

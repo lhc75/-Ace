@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">面试Ace悬浮助手</string>
+    <string name="scan_qr">扫描电脑二维码</string>
+    <string name="grant_overlay">授权悬浮窗</string>
+    <string name="start_overlay">开始悬浮</string>
+    <string name="stop_overlay">停止悬浮</string>
+    <string name="mode_title">连接模式</string>
+    <string name="mode_ai">AI 面试</string>
+    <string name="mode_assist">实时辅助</string>
+    <string name="server_placeholder">点击上方按钮扫描面试Ace电脑端二维码</string>
+    <string name="permission_hint">首次使用需要允许“显示在其他应用上层”。</string>
+    <string name="notification_channel">面试Ace悬浮窗</string>
+    <string name="notification_title">面试Ace悬浮助手运行中</string>
+    <string name="notification_stop">停止</string>
+</resources>

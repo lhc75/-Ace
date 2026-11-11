@@ -120,6 +120,49 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build Android overlay companion
+        working-directory: android
+        env:
+          VERSION_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          VERSION="${VERSION_NAME#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION="1.5.18"
+          fi
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug -PversionName="$VERSION"
+          mkdir -p ../dist/android
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            "../dist/android/InterviewAce-Overlay-${VERSION}.apk"
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: dist/android/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
   # 仅在推送 v* 标签时运行：把可用的平台产物挂到 GitHub Release 上。
   # .yml/.blockmap 一并上传，electron-updater 的 GitHub 通道需要它们。
   #
@@ -130,7 +173,7 @@ jobs:
   #   读的是 latest，不会把 Mac 用户引到一个没有 dmg 的版本）。
   # - 之后重跑 macOS 任务时，发布任务会幂等补传 dmg 并去掉 pre-release。
   publish-release:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-android]
     if: always() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -150,6 +193,12 @@ jobs:
           name: macos-release
           path: dist/mac
 
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release
+          path: dist/android
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -159,15 +208,19 @@ jobs:
           TAG="$GITHUB_REF_NAME"
           REPO="${{ github.repository }}"
           mac=(dist/mac/*)
+          android=(dist/android/*)
           if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
             if [ ${#mac[@]} -eq 0 ]; then
-              echo "macOS artifacts missing; publishing Windows-only pre-release"
+              echo "macOS artifacts missing; publishing Windows/Android pre-release"
               gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes --prerelease
             else
               gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes
             fi
           fi
           gh release upload "$TAG" dist/win/* -R "$REPO" --clobber
+          if [ ${#android[@]} -gt 0 ]; then
+            gh release upload "$TAG" "${android[@]}" -R "$REPO" --clobber
+          fi
           if [ ${#mac[@]} -gt 0 ]; then
             gh release upload "$TAG" "${mac[@]}" -R "$REPO" --clobber
             gh release edit "$TAG" -R "$REPO" --prerelease=false
