@@ -71,6 +71,13 @@ async def lifespan(app: FastAPI):
             len(token),
         )
 
+    try:
+        from services.mobile_tls import start_mobile_tls_server
+
+        start_mobile_tls_server(app)
+    except Exception as exc:
+        _log.warning("Mobile HTTPS startup skipped: %s", exc)
+
     cfg = get_config()
     models_summary = ", ".join(
         f"{m.name}({'on' if m.enabled else 'off'})" for m in cfg.models
@@ -120,6 +127,12 @@ async def lifespan(app: FastAPI):
     heartbeat_task.cancel()
     # cancel 只是请求: 等任务真正退出, 避免正在 _safe_send 的消息被中途丢弃
     await asyncio.gather(dispatch_task, heartbeat_task, return_exceptions=True)
+    try:
+        from services.mobile_tls import stop_mobile_tls_server
+
+        stop_mobile_tls_server()
+    except Exception:
+        pass
 
 
 def _preload_stt():

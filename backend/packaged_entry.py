@@ -115,9 +115,14 @@ def _self_test() -> None:
         "PIL.Image",
         "pymupdf",
         "mss",
+        "cryptography",
     )
     for module_name in modules:
         importlib.import_module(module_name)
+
+    from services.mobile_tls import ensure_certificate
+
+    ensure_certificate()
 
     # Importing main validates the bundled API/router/data-file graph.
     from main import app

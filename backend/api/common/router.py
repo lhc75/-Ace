@@ -1,6 +1,5 @@
 import os
 import re
-import socket
 import threading
 from pathlib import Path
 from typing import Optional
@@ -521,30 +520,53 @@ async def api_update_config(body: ConfigUpdate):
 
 @router.get("/network-info")
 async def api_network_info(request: Request):
-    """Return LAN IP and port so the frontend can render a scannable QR code.
+    """Return reachable LAN candidates so the frontend can render a QR code.
 
     若 LAN 鉴权开启,环回访问会在 URL 中追加 ``?t=<token>``,扫码后手机端
     可自动写入 sessionStorage 并附在后续请求里。LAN 客户端拿到的是不带
     token 的 URL,自身就拒绝访问,从而避免凭证泄露。
     """
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-    except Exception:
-        ip = "127.0.0.1"
+    from services.network_info import discover_lan_addresses
+
     # Read PORT from env (set by start.py), fallback to 18080
     port = env_int("PORT", 18080, minimum=1)
-    base = f"http://{ip}:{port}"
+    tls_port = env_int("IA_TLS_PORT", 0, minimum=0)
     client_host = request.client.host if request.client else None
-    url = base
     auth_required = not is_auth_disabled()
-    if auth_required and is_loopback_host(client_host):
-        url = f"{base}/?t={get_token()}"
+    token_suffix = (
+        f"?t={get_token()}"
+        if auth_required and is_loopback_host(client_host)
+        else ""
+    )
+    addresses = discover_lan_addresses()
+    https_urls = [
+        {
+            "ip": item.ip,
+            "interface": item.interface,
+            "label": item.label,
+            "url": f"https://{item.ip}:{tls_port}{token_suffix}",
+        }
+        for item in addresses
+        if tls_port > 0
+    ]
+    http_urls = [
+        {
+            "ip": item.ip,
+            "interface": item.interface,
+            "label": item.label,
+            "url": f"http://{item.ip}:{port}{token_suffix}",
+        }
+        for item in addresses
+    ]
+    urls = https_urls + http_urls
+    first = urls[0] if urls else {}
     return {
-        "ip": ip,
+        "ip": first.get("ip", "127.0.0.1"),
         "port": port,
-        "url": url,
+        "url": first.get("url", f"http://127.0.0.1:{port}{token_suffix}"),
+        "urls": urls,
+        "https_urls": https_urls,
+        "http_urls": http_urls,
         "auth_required": auth_required,
     }
 

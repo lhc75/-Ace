@@ -166,6 +166,7 @@ const SOURCE_LABELS: Record<string, string> = {
   conversation_mic: '本机麦克风',
   manual_text: '键盘速记',
   manual_image: '截图审题',
+  mobile_ai_interview: '手机外放采集',
   server_screen_left: '服务端截图审题',
   server_screen_multi: '连续截图审题',
   server_screen_exam_preflight: '笔试链路检测',
@@ -444,12 +445,12 @@ const QACard = memo(function QACard({ qa, isStreaming, stream, colorScheme, anim
   )
 })
 
-export default function AnswerPanel() {
+export default function AnswerPanel({ forceInterviewMode = false }: { forceInterviewMode?: boolean }) {
   const qaPairs = useInterviewStore((s) => s.qaPairs)
   const streamingIds = useInterviewStore((s) => s.streamingIds)
   const config = useInterviewStore((s) => s.config)
   const isRecording = useInterviewStore((s) => s.isRecording)
-  const isExamMode = config?.written_exam_mode === true
+  const isExamMode = !forceInterviewMode && config?.written_exam_mode === true
   const toggleSettings = useInterviewStore((s) => s.toggleSettings)
   const answerPanelLayout = useUiPrefsStore((s) => s.answerPanelLayout)
   const colorScheme = useUiPrefsStore((s) => s.colorScheme)
@@ -586,7 +587,7 @@ export default function AnswerPanel() {
             )}
 
             {/* Sound Test - only show when idle (not recording) */}
-            {isIdle && !isExamMode && (
+            {isIdle && !isExamMode && !forceInterviewMode && (
               <div className="mt-8 w-full max-w-md">
                 <Suspense fallback={<div className="text-center text-xs text-text-muted">加载链路检测中…</div>}>
                   <SoundTest />

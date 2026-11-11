@@ -66,7 +66,7 @@ function HintBanner({ tone, icon: Icon, children, onClose, closeLabel = '关闭'
   )
 }
 
-export default function ControlBar() {
+export default function ControlBar({ forceInterviewMode = false }: { forceInterviewMode?: boolean }) {
   // 精确订阅字段, 避免 store 任意字段(LLM token / audioLevel 等)变化触发 ControlBar 重渲染
   const {
     isRecording,
@@ -138,7 +138,7 @@ export default function ControlBar() {
     () => (config?.models ?? []).map((model, index) => ({ model, index })).filter(({ model }) => model.enabled !== false),
     [config?.models],
   )
-  const isExamMode = config?.written_exam_mode === true
+  const isExamMode = !forceInterviewMode && config?.written_exam_mode === true
   const noEnabledModels = (config?.models?.length ?? 0) > 0 && enabledModelEntries.length === 0
   const allModelsUnavailable = enabledModelEntries.length > 0 &&
     enabledModelEntries.every(({ index }) => modelHealth[index] === 'error')

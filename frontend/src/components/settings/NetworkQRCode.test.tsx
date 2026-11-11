@@ -42,9 +42,10 @@ describe('NetworkQRCode', () => {
 
     render(<NetworkQRCode />)
 
-    expect(await screen.findByText('http://192.168.1.9:8000')).toBeInTheDocument()
+    const urlText = await screen.findByText(/http:\/\/192\.168\.1\.9:8000/)
+    expect(urlText).toBeInTheDocument()
     await waitFor(() => {
-      expect(QRCode.toDataURL).toHaveBeenCalledWith('http://192.168.1.9:8000', {
+      expect(QRCode.toDataURL).toHaveBeenCalledWith(expect.stringMatching(/^http:\/\/192\.168\.1\.9:8000\/\?/), {
         width: 200,
         margin: 2,
         color: { dark: '#000000', light: '#ffffff' },
@@ -69,5 +70,39 @@ describe('NetworkQRCode', () => {
 
     expect(json).not.toHaveBeenCalled()
     expect(QRCode.toDataURL).not.toHaveBeenCalled()
+  })
+
+  it('prefers the HTTPS address required by mobile microphones', async () => {
+    const json = vi.fn().mockResolvedValue({
+      url: 'http://192.168.1.9:8000',
+      urls: [
+        {
+          ip: '192.168.1.9',
+          interface: 'en1',
+          label: 'Wi-Fi',
+          url: 'https://192.168.1.9:18443',
+        },
+        {
+          ip: '192.168.1.9',
+          interface: 'en1',
+          label: 'Wi-Fi',
+          url: 'http://192.168.1.9:8000',
+        },
+      ],
+      https_urls: [
+        {
+          ip: '192.168.1.9',
+          interface: 'en1',
+          label: 'Wi-Fi',
+          url: 'https://192.168.1.9:18443',
+        },
+      ],
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json }))
+
+    render(<NetworkQRCode />)
+
+    expect(await screen.findByText(/https:\/\/192\.168\.1\.9:18443/)).toBeInTheDocument()
+    expect(screen.getByText(/首次打开会提示证书不受信任/)).toBeInTheDocument()
   })
 })

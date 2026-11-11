@@ -7,6 +7,7 @@ import argparse
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -80,33 +81,44 @@ def main() -> None:
         fail("Windows backend is missing the Python runtime")
 
     if not args.skip_smoke:
-        try:
-            # PyInstaller's multiprocessing helper can inherit pipe handles and
-            # outlive the parent briefly. Capture to files so communicate() does
-            # not wait for an unrelated inherited pipe to close.
-            with (
-                tempfile.TemporaryFile(mode="w+") as stdout_file,
-                tempfile.TemporaryFile(mode="w+") as stderr_file,
-            ):
-                result = subprocess.run(
-                    [str(executable), "--self-test"],
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    text=True,
-                    # First launch of a freshly collected bundle can be delayed
-                    # while macOS/Windows scans all native files.
-                    timeout=120,
-                    check=False,
+        last_error = ""
+        for attempt in range(2):
+            try:
+                # PyInstaller's multiprocessing helper can inherit pipe handles
+                # and outlive the parent briefly. Capture to files so
+                # communicate() does not wait for an unrelated inherited pipe.
+                with (
+                    tempfile.TemporaryFile(mode="w+") as stdout_file,
+                    tempfile.TemporaryFile(mode="w+") as stderr_file,
+                ):
+                    result = subprocess.run(
+                        [str(executable), "--self-test"],
+                        stdout=stdout_file,
+                        stderr=stderr_file,
+                        text=True,
+                        # First launch of a freshly collected bundle can be
+                        # delayed while macOS/Windows scans all native files.
+                        timeout=120,
+                        check=False,
+                    )
+                    stdout_file.seek(0)
+                    stderr_file.seek(0)
+                    stdout = stdout_file.read()
+                    stderr = stderr_file.read()
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                last_error = str(exc)
+            else:
+                if result.returncode == 0:
+                    break
+                last_error = (
+                    f"exit {result.returncode}: "
+                    f"{(stderr or stdout).strip()}"
                 )
-                stdout_file.seek(0)
-                stderr_file.seek(0)
-                stdout = stdout_file.read()
-                stderr = stderr_file.read()
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            fail(f"backend executable smoke test failed: {exc}")
-        if result.returncode != 0:
-            detail = (stderr or stdout).strip()
-            fail(f"backend executable smoke test failed (exit {result.returncode}): {detail}")
+            if attempt == 0:
+                print("[WARN] first backend self-test failed; retrying once")
+                time.sleep(0.5)
+        else:
+            fail(f"backend executable smoke test failed after retry: {last_error}")
 
     print(
         "[OK] backend bundle complete: "

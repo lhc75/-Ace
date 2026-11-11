@@ -80,12 +80,23 @@ def resolve_port(preferred: int) -> int:
 
 def _print_access_info(port: int):
     """Print access URLs for both local and LAN."""
-    ip = get_local_ip()
+    try:
+        if BACKEND_DIR not in sys.path:
+            sys.path.insert(0, BACKEND_DIR)
+        from services.network_info import discover_lan_addresses
+
+        addresses = discover_lan_addresses()
+        ip = addresses[0].ip if addresses else get_local_ip()
+        label = addresses[0].label if addresses else "LAN"
+    except Exception:
+        ip = get_local_ip()
+        label = "LAN"
     print(f"  本机访问:   http://localhost:{port}")
-    print(f"  局域网访问: http://{ip}:{port}")
+    print(f"  局域网访问: http://{ip}:{port} ({label})")
+    print(f"  手机麦克风: https://{ip}:18443 (首次需信任本地证书)")
     print()
     print(f"  手机扫码:   打开上方页面 → 右上角设置 → 底部二维码")
-    print(f"  (手机和电脑需在同一 WiFi 下，音频在电脑端采集)")
+    print(f"  (手机和电脑需在同一 WiFi；手机页面可通过麦克风采集外放声音)")
     print()
 
 

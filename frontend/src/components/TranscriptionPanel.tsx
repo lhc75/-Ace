@@ -3,7 +3,7 @@ import { Mic, MicOff, Activity, Volume2, Radio, Languages, ClipboardPaste, Keybo
 import { api, getErrorMessage } from '@/lib/api'
 import { useInterviewStore } from '@/stores/configStore'
 
-export default function TranscriptionPanel() {
+export default function TranscriptionPanel({ forceInterviewMode = false }: { forceInterviewMode?: boolean }) {
   const transcriptions = useInterviewStore((s) => s.transcriptions)
   const interimTranscription = useInterviewStore((s) => s.interimTranscription)
   const deleteTranscription = useInterviewStore((s) => s.deleteTranscription)
@@ -12,7 +12,7 @@ export default function TranscriptionPanel() {
   const audioLevel = useInterviewStore((s) => s.audioLevel)
   const isTranscribing = useInterviewStore((s) => s.isTranscribing)
   const config = useInterviewStore((s) => s.config)
-  const isExamMode = config?.written_exam_mode === true
+  const isExamMode = !forceInterviewMode && config?.written_exam_mode === true
   const contentRef = useRef<HTMLDivElement>(null)
   const autoFollowRef = useRef(true)
   const [showJumpToLatest, setShowJumpToLatest] = useState(false)

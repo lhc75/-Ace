@@ -76,6 +76,15 @@ export default function App() {
   useOverlayWindowSync()
   useStealthModeSync()
 
+  useEffect(() => {
+    const requestedMode = new URLSearchParams(window.location.search).get('mode')
+    if (requestedMode === 'ai-interview') {
+      setAppMode('ai-interview')
+    } else if (requestedMode === 'assist') {
+      setAppMode('assist')
+    }
+  }, [setAppMode])
+
   const [serverScreenLoading, setServerScreenLoading] = useState(false)
   const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false)
   const [moduleMenuOpen, setModuleMenuOpen] = useState(false)

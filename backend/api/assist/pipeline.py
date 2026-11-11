@@ -1135,6 +1135,46 @@ def start_nonblocking(device_id: Optional[int] = None, candidate_mic_device_id: 
         return _start_nonblocking_locked(device_id, candidate_mic_device_id)
 
 
+def start_mobile_capture() -> None:
+    """Start an AI-interview session whose interviewer audio arrives over WS."""
+    start_nonblocking(None, None)
+
+
+def ingest_mobile_transcription(text: str) -> bool:
+    """Publish a finalized phone transcription and dispatch a structured answer."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return False
+    cfg = get_config()
+    session = get_session()
+    if not session.is_recording:
+        return False
+    pub = _publishable_transcription(cleaned, cfg)
+    if not pub:
+        return False
+    now_mono = time.monotonic()
+    with _asr_state_lock:
+        entry = session.add_transcription(pub)
+        broadcast({
+            "type": "transcription",
+            "id": entry.id,
+            "text": pub,
+            "timestamp": entry.timestamp,
+        })
+        # The mobile endpoint exists specifically for AI-interview assist, so
+        # dispatch even when the desktop auto-detect preference is disabled.
+        _asr_state.handle_auto_detect_asr_text(
+            cfg,
+            session,
+            pub,
+            "mobile_ai_interview",
+            now_mono,
+            transcription_id=entry.id,
+        )
+        _asr_state.try_flush_question_group(cfg, session, now_mono, True)
+    return True
+
+
 def _start_nonblocking_locked(device_id: Optional[int], candidate_mic_device_id: Optional[int]):
     global _recording_generation
     global _interview_thread, _candidate_thread

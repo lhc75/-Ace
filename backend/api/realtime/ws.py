@@ -3,13 +3,16 @@ import json
 import time
 from typing import Optional
 
+import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from core.auth import is_auth_disabled, loopback_bypass_allowed, verify_token
 from core.config import get_config
 from core.logger import get_logger
 from core.session import snapshot_session
+from services.audio import AudioCapture, VADBuffer
 from services.stt import get_stt_engine
+from services.stt import transcribe_with_fallback
 
 _log = get_logger("ws")
 
@@ -216,3 +219,115 @@ async def websocket_endpoint(ws: WebSocket):
     finally:
         ws_clients.discard(ws)
         _log.info("WS disconnect clients=%d", len(ws_clients))
+
+
+@router.websocket("/ws/mobile-audio")
+async def websocket_mobile_audio(ws: WebSocket):
+    """Accept 16 kHz mono PCM16 from the phone microphone.
+
+    The phone captures both its own speaker and the surrounding interviewer
+    audio. Segments are transcribed locally by the desktop backend and fed
+    into the same answer pipeline used by realtime assist.
+    """
+    if not _ws_authorized(ws):
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    cfg = get_config()
+    vad = VADBuffer(
+        sample_rate=AudioCapture.SAMPLE_RATE,
+        silence_threshold=float(getattr(cfg, "silence_threshold", 0.01) or 0.01),
+        silence_duration=float(getattr(cfg, "silence_duration", 1.2) or 1.2),
+        min_speech_duration=float(getattr(cfg, "assist_vad_min_speech_sec", 0.3) or 0.3),
+        max_speech_duration=float(getattr(cfg, "assist_vad_max_speech_sec", 18.0) or 18.0),
+        preroll_duration=0.24,
+        rollover_duration=0.28,
+    )
+    segment_queue: asyncio.Queue = asyncio.Queue(maxsize=6)
+    finished = object()
+
+    async def transcribe_worker():
+        from api.assist.pipeline import ingest_mobile_transcription
+
+        while True:
+            audio = await segment_queue.get()
+            try:
+                if audio is finished:
+                    return
+                broadcast({"type": "transcribing", "value": True})
+                try:
+                    text = await asyncio.to_thread(
+                        transcribe_with_fallback,
+                        audio,
+                        AudioCapture.SAMPLE_RATE,
+                        cfg.position,
+                        cfg.language,
+                        scope="interviewer",
+                    )
+                    if text.strip():
+                        await asyncio.to_thread(ingest_mobile_transcription, text)
+                except Exception as exc:
+                    _log.error("mobile audio transcription failed: %s", exc, exc_info=True)
+                    await ws.send_json({
+                        "type": "mobile_audio_error",
+                        "message": str(exc)[:200],
+                    })
+                finally:
+                    broadcast({"type": "transcribing", "value": False})
+            finally:
+                segment_queue.task_done()
+
+    worker = asyncio.create_task(transcribe_worker())
+    await ws.accept()
+    await ws.send_json({
+        "type": "mobile_audio_ready",
+        "sample_rate": AudioCapture.SAMPLE_RATE,
+    })
+
+    try:
+        while True:
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            chunk = message.get("bytes")
+            if chunk:
+                audio = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                if len(audio) == 0:
+                    continue
+                level = float(np.sqrt(np.mean(audio ** 2)))
+                await ws.send_json({"type": "mobile_audio_level", "value": level})
+                segment = vad.feed(audio)
+                if segment is not None:
+                    try:
+                        segment_queue.put_nowait(segment)
+                    except asyncio.QueueFull:
+                        await ws.send_json({
+                            "type": "mobile_audio_error",
+                            "message": "手机音频处理积压，已丢弃最旧片段",
+                        })
+                        _ = segment_queue.get_nowait()
+                        segment_queue.task_done()
+                        segment_queue.put_nowait(segment)
+                continue
+
+            text = message.get("text")
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if payload.get("type") == "stop":
+                tail = vad.flush()
+                if tail is not None:
+                    await segment_queue.put(tail)
+                break
+    except WebSocketDisconnect:
+        tail = vad.flush()
+        if tail is not None:
+            await segment_queue.put(tail)
+    finally:
+        await segment_queue.put(finished)
+        await segment_queue.join()
+        worker.cancel()
+        await asyncio.gather(worker, return_exceptions=True)

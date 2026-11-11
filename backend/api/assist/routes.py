@@ -16,6 +16,8 @@ from .pipeline import (
     pause_interview,
     pick_model_index,
     prompt_server_screen_code,
+    ingest_mobile_transcription,
+    start_mobile_capture,
     start_nonblocking,
     stop_interview_loop,
     submit_answer_task,
@@ -76,6 +78,34 @@ class MultiServerScreenQuestion(BaseModel):
 
 class ServerScreenQuestion(BaseModel):
     override_think_mode: Optional[bool] = None
+
+
+@router.post("/mobile-capture/start")
+async def api_mobile_capture_start():
+    await run_in_threadpool(start_mobile_capture)
+    return {"ok": True}
+
+
+@router.get("/mobile-capture/status")
+async def api_mobile_capture_status():
+    session = get_session()
+    return {
+        "active": bool(session.is_recording),
+        "paused": bool(session.is_paused),
+        "qa_count": len(session.qa_pairs),
+        "transcription_count": len(session.transcription_history),
+    }
+
+
+@router.post("/mobile-capture/transcript")
+async def api_mobile_capture_transcript(body: dict):
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(400, "text 不能为空")
+    accepted = await run_in_threadpool(ingest_mobile_transcription, text)
+    if not accepted:
+        raise HTTPException(409, "手机采集会话尚未开始")
+    return {"ok": True}
 
 
 @router.post("/start")

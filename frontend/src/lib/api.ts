@@ -208,6 +208,16 @@ export const api = {
         ...(candidate_mic_device_id != null ? { candidate_mic_device_id } : {}),
       }),
     }),
+  mobileCaptureStart: () => request<{ ok: boolean }>('/api/mobile-capture/start', {
+    method: 'POST',
+    body: '{}',
+  }),
+  mobileCaptureStatus: () => request<{
+    active: boolean
+    paused: boolean
+    qa_count: number
+    transcription_count: number
+  }>('/api/mobile-capture/status'),
   stop: () => request<{ ok: boolean; review_session_id?: number | null; review_status?: string | null }>('/api/stop', { method: 'POST' }),
   deleteTranscription: (id: string) =>
     request<{ ok: boolean; id: string; qa_ids: string[] }>(`/api/transcriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }),

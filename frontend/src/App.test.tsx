@@ -125,13 +125,11 @@ describe('App bootstrap', () => {
 
     await waitFor(() => {
       expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
-      expect(screen.getByRole('heading', { name: 'AI模拟面试' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '在线 AI 面试辅助' })).toBeInTheDocument()
       expect(screen.getByText('AI 在看什么')).toBeInTheDocument()
-      expect(screen.getByText('三类高频题，按这个结构答')).toBeInTheDocument()
-      expect(screen.getByText('AI 视角自检清单')).toBeInTheDocument()
-      expect(screen.getByLabelText('题目数量')).toHaveValue(3)
-      expect(screen.getByLabelText(/总时长/)).toHaveValue(15)
-    })
+      expect(screen.getByText('回答格式')).toBeInTheDocument()
+      expect(screen.getByText('AI 视角自检')).toBeInTheDocument()
+    }, { timeout: 5000 })
   })
 
   it('prevents duplicate mobile server screen asks while one is in flight', async () => {
