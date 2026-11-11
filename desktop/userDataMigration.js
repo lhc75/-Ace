@@ -90,7 +90,25 @@ function isExampleConfig(configPath, exampleConfigPath) {
 function shouldMigrate({ legacyDir, newUserDataDir, exampleConfigPath }) {
   const legacyConfig = path.join(legacyDir, 'config.json');
   if (!fs.existsSync(legacyConfig)) return false;
-  return isExampleConfig(path.join(newUserDataDir, 'config.json'), exampleConfigPath);
+
+  const newConfig = path.join(newUserDataDir, 'config.json');
+  const newDataDir = path.join(newUserDataDir, 'data');
+
+  // 如果新目录已经有数据文件夹，说明是已有安装，不应该迁移
+  if (fs.existsSync(newDataDir)) {
+    try {
+      const dataEntries = fs.readdirSync(newDataDir);
+      // 如果data目录有任何.db文件，说明是真实数据，不迁移
+      if (dataEntries.some(name => name.endsWith('.db') || name.endsWith('.sqlite'))) {
+        return false;
+      }
+    } catch {
+      // 读取失败时保守处理：不迁移
+      return false;
+    }
+  }
+
+  return isExampleConfig(newConfig, exampleConfigPath);
 }
 
 /** 迁移前把新目录里可能存在的少量状态文件备份到 appData/<name>.pre-migration-<时间> */
@@ -105,6 +123,25 @@ function backupCurrentState(newUserDataDir, backupDir) {
       copied += 1;
     } catch {
       /* 备份失败不阻断迁移 */
+    }
+  }
+  // 如果备份了任何文件，在备份目录创建说明文件
+  if (copied > 0) {
+    try {
+      const readmePath = path.join(backupDir, 'README.txt');
+      const content = `这是数据迁移前的备份目录
+
+创建时间: ${new Date().toISOString()}
+原因: 从旧版本(interview-assistant-desktop)迁移到新版本(面试Ace)
+
+如果迁移后发现数据有问题，可以手动从这个目录恢复文件到:
+${newUserDataDir}
+
+备份的文件数量: ${copied}
+`;
+      fs.writeFileSync(readmePath, content, 'utf8');
+    } catch {
+      /* 写入说明文件失败不影响备份 */
     }
   }
   return copied > 0 ? backupDir : null;
