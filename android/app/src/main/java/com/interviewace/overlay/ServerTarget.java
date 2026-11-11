@@ -6,10 +6,10 @@ import okhttp3.HttpUrl;
 
 public final class ServerTarget {
     private final HttpUrl pageUrl;
-    private final HttpUrl websocketUrl;
+    private final String websocketUrl;
     private final String mode;
 
-    private ServerTarget(HttpUrl pageUrl, HttpUrl websocketUrl, String mode) {
+    private ServerTarget(HttpUrl pageUrl, String websocketUrl, String mode) {
         this.pageUrl = pageUrl;
         this.websocketUrl = websocketUrl;
         this.mode = mode;
@@ -36,22 +36,25 @@ public final class ServerTarget {
             token = pageUrl.queryParameter("token");
         }
 
-        HttpUrl.Builder wsBuilder = new HttpUrl.Builder()
-            .scheme("https".equals(scheme) ? "wss" : "ws")
-            .host(pageUrl.host())
-            .port(pageUrl.port())
-            .encodedPath("/ws");
+        HttpUrl.Builder wsBuilder = pageUrl.newBuilder()
+            .scheme("http")
+            .encodedPath("/ws")
+            .query(null)
+            .fragment(null);
         if (token != null && !token.isEmpty()) {
             wsBuilder.addQueryParameter("token", token);
         }
-        return new ServerTarget(pageUrl, wsBuilder.build(), mode);
+        String httpWebSocket = wsBuilder.build().toString();
+        String websocketUrl = ("https".equals(scheme) ? "wss" : "ws")
+            + httpWebSocket.substring("http".length());
+        return new ServerTarget(pageUrl, websocketUrl, mode);
     }
 
     public HttpUrl pageUrl() {
         return pageUrl;
     }
 
-    public HttpUrl websocketUrl() {
+    public String websocketUrl() {
         return websocketUrl;
     }
 
@@ -60,11 +63,11 @@ public final class ServerTarget {
     }
 
     public boolean usesTls() {
-        return "wss".equals(websocketUrl.scheme());
+        return websocketUrl.startsWith("wss://");
     }
 
     public String host() {
-        return websocketUrl.host();
+        return pageUrl.host();
     }
 
     public String displayUrl() {
