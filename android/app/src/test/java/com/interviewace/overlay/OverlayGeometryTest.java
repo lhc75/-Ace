@@ -34,7 +34,7 @@ public class OverlayGeometryTest {
     @Test
     public void topRightResizeRespectsMinimumSize() {
         OverlayGeometry.Bounds bounds = OverlayGeometry.resize(
-            100, 200, 320, 260, 200, 200,
+            100, 200, 320, 260, -200, 200,
             OverlayGeometry.CORNER_TOP_RIGHT, 280, 220, 1000, 900
         );
 
