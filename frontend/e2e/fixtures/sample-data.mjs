@@ -794,6 +794,40 @@ export function resolveApiPayload(pathname, method) {
   if (pathname === '/api/knowledge/history') return SAMPLE_KNOWLEDGE_HISTORY
   if (pathname === '/api/knowledge/reset') return { ok: true }
 
+  if (pathname === '/api/mock-interview/sessions' && method === 'GET') {
+    return { items: [] }
+  }
+  if (pathname === '/api/mock-interview/sessions' && method === 'POST') {
+    return {
+      id: 1,
+      status: 'in_progress',
+      position: '后端开发',
+      company: '',
+      current_question: {
+        id: 'mock-q-1',
+        main_index: 1,
+        kind: 'main',
+        category: 'technical',
+        question_text: '请做一个简短的自我介绍。',
+        answer_time_limit_seconds: 120,
+        prep_seconds: 15,
+        phase: 'thinking',
+        prep_started_at: Date.now() / 1000,
+        answer_deadline_at: null,
+        draft_text: '',
+      },
+      questions: [],
+      answered_count: 0,
+      main_answered_count: 0,
+      main_question_target: 10,
+      max_follow_ups: 3,
+      has_resume: false,
+      model_name: 'demo',
+      created_at: Date.now() / 1000,
+      updated_at: Date.now() / 1000,
+    }
+  }
+
   if (pathname === '/api/review/sessions') return SAMPLE_REVIEW_SESSIONS
   if (/^\/api\/review\/sessions\/\d+\/generate$/.test(pathname)) {
     return { status: 'started', message: '已开始生成复盘' }

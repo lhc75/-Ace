@@ -40,6 +40,7 @@ vi.mock('@/components/SettingsDrawer', () => ({ default: () => null }))
 vi.mock('@/components/KnowledgeMap', () => ({ default: () => <div>knowledge</div> }))
 vi.mock('@/components/ResumeOptimizer', () => ({ default: () => <div>resume</div> }))
 vi.mock('@/components/JobTracker', () => ({ default: () => <div>jobs</div> }))
+vi.mock('@/components/MockInterview', () => ({ default: () => <div data-testid="mock-interview-mode">mock interview</div> }))
 
 
 describe('App bootstrap', () => {
@@ -127,6 +128,18 @@ describe('App bootstrap', () => {
       expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
       expect(screen.getByTestId('ai-interview-mode')).toBeInTheDocument()
       expect(screen.getByText('controls')).toBeInTheDocument()
+    }, { timeout: 5000 })
+  })
+
+  it('switches to the AI mock interview page from the sidebar', async () => {
+    render(<App />)
+
+    const mockTab = await screen.findByRole('tab', { name: 'AI模拟面试' })
+    fireEvent.click(mockTab)
+
+    await waitFor(() => {
+      expect(mockTab).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByTestId('mock-interview-mode')).toBeInTheDocument()
     }, { timeout: 5000 })
   })
 

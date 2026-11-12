@@ -23,7 +23,7 @@ const ASSIST_SPLIT_KEY = 'ia_assist_split_pct'
 const ASSIST_TRANSCRIPT_COLLAPSED_KEY = 'ia_assist_transcript_collapsed'
 const APP_MODE_KEY = 'ia_app_mode'
 
-type AppMode = 'assist' | 'review' | 'knowledge' | 'resume-opt' | 'job-tracker' | 'ai-interview'
+type AppMode = 'assist' | 'review' | 'knowledge' | 'resume-opt' | 'job-tracker' | 'ai-interview' | 'mock-interview'
 type JobTrackerDeepLink = {
   applicationId: number
   openReviews?: boolean
@@ -51,6 +51,7 @@ const APP_MODE_VALUES: ReadonlySet<AppMode> = new Set([
   'resume-opt',
   'job-tracker',
   'ai-interview',
+  'mock-interview',
 ])
 
 /* ── localStorage 读取/归一化助手 ─────────────────────────────

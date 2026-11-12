@@ -23,6 +23,18 @@ export async function installMocks(context, options = {}) {
   const messages = options.messages ?? []
   const localStorageEntries = Object.entries(options.localStorage ?? {})
 
+  // Keep E2E deterministic in environments where external font requests hang.
+  await context.route(/fonts\.googleapis\.com/, (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/css; charset=utf-8',
+    body: '',
+  }))
+  await context.route(/fonts\.gstatic\.com/, (route) => route.fulfill({
+    status: 200,
+    contentType: 'font/woff2',
+    body: '',
+  }))
+
   await context.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
     const method = route.request().method()

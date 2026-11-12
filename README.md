@@ -5,7 +5,7 @@
 面向真实技术面试全流程：实时转写支持四种识别引擎（本地 Whisper / 豆包 / 通用 ASR / 阿里千问），说完即定稿派发；自己的回答也会被麦克风转写记录，供复盘和上下文参考。Electron 桌面端提供屏幕共享隐身、Boss Key、托盘和悬浮问答窗，绝大多数常见面试软件场景下都能避开共享检测，但不同软件策略不同，请务必自行充分实测。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.5.0-284B63" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.0-284B63" alt="Version" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC%204.0-A23B72" alt="License" />
   <img src="https://img.shields.io/badge/python-3.10+-2A9D8F" alt="Python" />
   <img src="https://img.shields.io/badge/node-18+-E76F51" alt="Node" />
@@ -24,12 +24,12 @@
 
 ## 下载安装
 
-打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v1.4.10**）。
+打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v2.0.0**）。
 
 下载对应平台的安装包，装好即可使用：
 
-- **macOS（Apple Silicon）**：`InterviewAce-1.4.10-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
-- **Windows（x64）**：`InterviewAce-Setup-1.4.10.exe` 安装版，或 `InterviewAssistant-Portable-1.4.10.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
+- **macOS（Apple Silicon）**：`InterviewAce-2.0.0-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
+- **Windows（x64）**：`InterviewAce-Setup-2.0.0.exe` 安装版，或 `InterviewAssistant-Portable-2.0.0.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
 
 > **启动异常排查**：主进程日志在 Windows 的 `%APPDATA%\面试Ace\logs\desktop.log`、macOS 的 `~/Library/Application Support/面试Ace/logs/desktop.log`（后端日志在同目录 `log/` 下）。1.4.5 起 Windows 默认不再启用 `--in-process-gpu`——该开关在部分多显卡/虚拟显示器机器上会导致启动瞬间原生崩溃。若仍遇到「托盘图标一闪就消失」，应用会在下次启动自动降级图形栈重试，也可以设 `IA_SAFE_MODE=1` 以软件渲染启动。
 
@@ -163,6 +163,7 @@
 | 模块 | 现在能做什么 |
 | --- | --- |
 | **实时辅助** | ASR 转写（四引擎）→ 问题识别 → 多模型并行回答 → 截图审题 / 联网搜索 / 知识库引用 |
+| **AI 模拟面试** | 基于简历或岗位随机生成 10 个主问题，实时语音转写、可编辑拼接、智能追问、AI 倒计时与完整诊断报告 |
 | **面试复盘** | 录制真实问答双音轨、ASR 自动纠错、逐题分析、整场总结 |
 | **知识库** | 上传 `.md` / `.txt` / `.log` / `.docx` / `.pdf`，支持检索测试、最近命中和回答引用角标 |
 | **能力分析** | 知识点标签、历史问答记录、薄弱点趋势 |

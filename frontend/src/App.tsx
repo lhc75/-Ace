@@ -14,6 +14,7 @@ import {
   NotebookPen,
   Briefcase,
   Trophy,
+  MessagesSquare,
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useInterviewStore, type AppConfig } from '@/stores/configStore'
@@ -40,10 +41,12 @@ const KnowledgeMap = lazy(() => import('@/components/KnowledgeMap'))
 const ResumeOptimizer = lazy(() => import('@/components/ResumeOptimizer'))
 const JobTracker = lazy(() => import('@/components/JobTracker'))
 const AIInterviewMode = lazy(() => import('@/components/AIInterviewMode'))
+const MockInterview = lazy(() => import('@/components/MockInterview'))
 
 const APP_MODE_TABS = [
   ['assist', '实时辅助', AudioLines],
   ['ai-interview', 'AI面试', Trophy],
+  ['mock-interview', 'AI模拟面试', MessagesSquare],
   ['review', '面试复盘', History],
   ['knowledge', '能力分析', Radar],
   ['resume-opt', '简历优化', NotebookPen],
@@ -82,6 +85,8 @@ export default function App() {
     const requestedMode = new URLSearchParams(window.location.search).get('mode')
     if (requestedMode === 'ai-interview') {
       setAppMode('ai-interview')
+    } else if (requestedMode === 'mock-interview') {
+      setAppMode('mock-interview')
     } else if (requestedMode === 'assist') {
       setAppMode('assist')
     }
@@ -659,6 +664,12 @@ function sttStatusLabel(sttLoaded: boolean, sttLoading: boolean, activeProvider:
         {appMode === 'ai-interview' && (
           <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-text-muted">加载 AI 面试中…</div>}>
             <AIInterviewMode />
+          </Suspense>
+        )}
+
+        {appMode === 'mock-interview' && (
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center text-sm text-text-muted">加载 AI 模拟面试中…</div>}>
+            <MockInterview />
           </Suspense>
         )}
 

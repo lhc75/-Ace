@@ -23,11 +23,12 @@ test.describe('app shell', () => {
     await expect(page.getByRole('complementary').getByText('STT 就绪')).toBeVisible({ timeout: 5000 })
   })
 
-  test('module tabs switch between assist / AI interview / review / knowledge / resume / job-tracker', async ({ page }) => {
+  test('module tabs switch between assist / AI interview / mock interview / review / knowledge / resume / job-tracker', async ({ page }) => {
     await page.goto('/')
 
     const assistTab = page.getByRole('tab', { name: '实时辅助' })
     const aiInterviewTab = page.getByRole('tab', { name: 'AI面试' })
+    const mockInterviewTab = page.getByRole('tab', { name: 'AI模拟面试' })
     const reviewTab = page.getByRole('tab', { name: '面试复盘' })
     const knowledgeTab = page.getByRole('tab', { name: '能力分析' })
     const resumeTab = page.getByRole('tab', { name: '简历优化' })
@@ -39,6 +40,10 @@ test.describe('app shell', () => {
     await expect(aiInterviewTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('ai-interview-mode')).toBeVisible({ timeout: 8000 })
     await expect(page.getByRole('button', { name: '选择会议音频设备' })).toBeVisible()
+
+    await mockInterviewTab.click()
+    await expect(mockInterviewTab).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('heading', { name: 'AI 模拟面试' })).toBeVisible({ timeout: 8000 })
 
     await reviewTab.click()
     await expect(reviewTab).toHaveAttribute('aria-selected', 'true')

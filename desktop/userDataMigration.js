@@ -92,22 +92,8 @@ function shouldMigrate({ legacyDir, newUserDataDir, exampleConfigPath }) {
   if (!fs.existsSync(legacyConfig)) return false;
 
   const newConfig = path.join(newUserDataDir, 'config.json');
-  const newDataDir = path.join(newUserDataDir, 'data');
-
-  // 如果新目录已经有数据文件夹，说明是已有安装，不应该迁移
-  if (fs.existsSync(newDataDir)) {
-    try {
-      const dataEntries = fs.readdirSync(newDataDir);
-      // 如果data目录有任何.db文件，说明是真实数据，不迁移
-      if (dataEntries.some(name => name.endsWith('.db') || name.endsWith('.sqlite'))) {
-        return false;
-      }
-    } catch {
-      // 读取失败时保守处理：不迁移
-      return false;
-    }
-  }
-
+  // 配置文件是最可靠的“是否已有真实安装”信号。首次启动可能先创建
+  // 空数据库或示例数据库，不能因此阻止旧目录迁移。
   return isExampleConfig(newConfig, exampleConfigPath);
 }
 

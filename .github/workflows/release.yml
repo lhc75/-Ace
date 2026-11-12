@@ -213,12 +213,17 @@ jobs:
           REPO="${{ github.repository }}"
           mac=(dist/mac/*)
           android=(dist/android/*)
+          NOTES_FILE="RELEASE_NOTES_${TAG#v}.md"
+          notes_args=(--generate-notes)
+          if [ -f "$NOTES_FILE" ]; then
+            notes_args=(--notes-file "$NOTES_FILE")
+          fi
           if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
             if [ ${#mac[@]} -eq 0 ]; then
               echo "macOS artifacts missing; publishing Windows/Android pre-release"
-              gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes --prerelease
+              gh release create "$TAG" -R "$REPO" --title "$TAG" "${notes_args[@]}" --prerelease
             else
-              gh release create "$TAG" -R "$REPO" --title "$TAG" --generate-notes
+              gh release create "$TAG" -R "$REPO" --title "$TAG" "${notes_args[@]}"
             fi
           fi
           gh release upload "$TAG" dist/win/* -R "$REPO" --clobber
