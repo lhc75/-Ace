@@ -270,6 +270,17 @@ def evaluate_answer(
     follow_up_count: int,
     recent_context: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    if not str(answer or "").strip():
+        return {
+            "score": 0.0,
+            "strengths": [],
+            "risks": ["本题未作答"],
+            "improvement": "即使时间不足，也应先给出结论和一个具体例子。",
+            "follow_up_question": None,
+            "follow_up_reason": None,
+            "follow_up_time_limit_seconds": _clamp_limit(None, category),
+            "follow_up_count": follow_up_count,
+        }
     context_text = "\n".join(
         f"- {item.get('question_text', '')}\n  回答：{str(item.get('answer_text') or '')[:1000]}"
         for item in recent_context[-5:]
@@ -320,6 +331,17 @@ def evaluate_answer(
         if follow_up_text.lower() in {"null", "none", "无"}:
             follow_up_text = ""
     else:
+        follow_up_text = ""
+    # 防止模型原样重复上一道题，浪费候选人的作答时间。
+    recent_questions = {
+        str(question or "").strip(),
+        *{
+            str(item.get("question_text") or "").strip()
+            for item in recent_context
+            if str(item.get("question_text") or "").strip()
+        },
+    }
+    if follow_up_text in recent_questions:
         follow_up_text = ""
     return {
         "score": round(score, 1),

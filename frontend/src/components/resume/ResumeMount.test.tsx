@@ -50,6 +50,27 @@ describe('ResumeMount', () => {
     expect(screen.getByText('resume-history-panel')).toBeInTheDocument()
   })
 
+  it('handles legacy resume text without an upload record consistently', () => {
+    useInterviewStore.setState({
+      config: {
+        has_resume: true,
+        resume_active_filename: null,
+        resume_active_history_id: null,
+      },
+    } as any)
+
+    render(
+      <ResumeMountPanel
+        title="当前挂载简历"
+        description="所有模块共用同一份简历。"
+      />,
+    )
+
+    expect(screen.getByText('已加载')).toBeInTheDocument()
+    expect(screen.getByText('旧版简历文本（未关联上传记录）')).toBeInTheDocument()
+    expect(screen.getByText('当前挂载记录 ID：未关联历史记录')).toBeInTheDocument()
+  })
+
   it('renders the active filename in inline mode', () => {
     useInterviewStore.setState({
       config: {

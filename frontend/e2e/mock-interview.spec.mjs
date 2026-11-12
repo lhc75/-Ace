@@ -173,6 +173,7 @@ test.describe('AI mock interview', () => {
 
     await page.getByRole('button', { name: '返回模拟面试列表' }).click()
     await expect(page.getByText(/Java 后端开发/)).toBeVisible()
+    await expect(page.getByText(/主问题 10\/10/)).toBeVisible()
     page.once('dialog', (dialog) => dialog.accept())
     await page.getByRole('button', { name: '删除模拟面试记录' }).click()
     await expect(page.getByText('还没有模拟面试记录')).toBeVisible()

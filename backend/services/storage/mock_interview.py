@@ -242,7 +242,20 @@ def list_sessions(limit: int = 100) -> list[dict[str, Any]]:
                     "SELECT * FROM mock_interview_questions WHERE id = ?",
                     (row["current_question_id"],),
                 ).fetchone()
-            result.append(_session_summary(row, current))
+            counts = conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN phase IN ('submitted_pending_eval','evaluated') THEN 1 ELSE 0 END) AS answered_count,
+                    SUM(CASE WHEN kind = 'main' AND phase IN ('submitted_pending_eval','evaluated') THEN 1 ELSE 0 END) AS main_answered_count
+                FROM mock_interview_questions
+                WHERE session_id = ?
+                """,
+                (row["id"],),
+            ).fetchone()
+            summary = _session_summary(row, current)
+            summary["answered_count"] = int((counts["answered_count"] if counts else 0) or 0)
+            summary["main_answered_count"] = int((counts["main_answered_count"] if counts else 0) or 0)
+            result.append(summary)
         return result
 
 

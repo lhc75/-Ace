@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.storage import mock_interview as store  # noqa: E402
+from services.mock_interview import service as mock_service  # noqa: E402
 
 
 def _plan():
@@ -136,7 +137,10 @@ def test_create_start_submit_followup_limit_and_report(client):
 
     listed = client.get("/api/mock-interview/sessions")
     assert listed.status_code == 200
-    assert listed.json()["items"][0]["id"] == session["id"]
+    item = listed.json()["items"][0]
+    assert item["id"] == session["id"]
+    assert item["answered_count"] == 4
+    assert item["main_answered_count"] == 1
 
     deleted = client.delete(f"/api/mock-interview/sessions/{session['id']}")
     assert deleted.status_code == 200
@@ -227,3 +231,51 @@ def test_mock_interview_audio_websocket_concatenates_segments(client, monkeypatc
                 break
         assert seen_segment
         assert seen_flushed
+
+
+def test_empty_answer_is_always_zero_without_calling_llm(monkeypatch):
+    def fail_chat(**kwargs):
+        raise AssertionError("empty answer must not call the LLM")
+
+    monkeypatch.setattr(mock_service, "_chat_json", fail_chat)
+    result = mock_service.evaluate_answer(
+        position="后端开发",
+        company="",
+        question="Redis 缓存击穿如何处理？",
+        category="technical",
+        answer="   ",
+        main_index=1,
+        follow_up_count=0,
+        recent_context=[],
+    )
+    assert result["score"] == 0
+    assert result["follow_up_question"] is None
+    assert result["risks"] == ["本题未作答"]
+
+
+def test_exact_duplicate_follow_up_is_suppressed(monkeypatch):
+    monkeypatch.setattr(
+        mock_service,
+        "_chat_json",
+        lambda **kwargs: {
+            "score": 86,
+            "strengths": ["回答扎实"],
+            "risks": [],
+            "improvement": "补充边界",
+            "follow_up_question": "如果缓存重建期间数据库也过载，你会怎么降级？",
+            "follow_up_reason": "继续深挖",
+            "follow_up_time_limit_seconds": 60,
+        },
+    )
+    result = mock_service.evaluate_answer(
+        position="后端开发",
+        company="",
+        question="如果缓存重建期间数据库也过载，你会怎么降级？",
+        category="technical",
+        answer="先限流并切只读缓存。",
+        main_index=1,
+        follow_up_count=1,
+        recent_context=[],
+    )
+    assert result["score"] == 86
+    assert result["follow_up_question"] is None

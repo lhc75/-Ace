@@ -1,6 +1,6 @@
 {
   "name": "interview-assistant-desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "面试Ace InterviewAce - Electron 桌面端",
   "appDisplayName": "面试Ace",
   "main": "main.js",

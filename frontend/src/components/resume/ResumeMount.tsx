@@ -240,7 +240,7 @@ export function ResumeMountPanel({
           {sharedNote && <p className={noteClass}>{sharedNote}</p>}
         </div>
         <span className={`rounded-full px-3 py-1 text-[11px] ${statusClass}`}>
-          {statusLabel || (hasResume ? '已挂载' : '待挂载')}
+          {statusLabel || (hasResume ? (activeFilename ? '已挂载' : '已加载') : '待挂载')}
         </span>
       </div>
 
@@ -249,11 +249,11 @@ export function ResumeMountPanel({
           <FileText className={`w-3.5 h-3.5 flex-shrink-0 ${hasResume ? 'text-accent-green' : 'text-text-muted'}`} />
           <div className="min-w-0 flex-1">
             <p className="font-medium truncate" data-testid="resume-mount-filename">
-              {activeFilename || emptyHint || '当前没有挂载简历'}
+              {activeFilename || emptyHint || (hasResume ? '旧版简历文本（未关联上传记录）' : '当前没有挂载简历')}
             </p>
             <p className={secondaryTextClass}>
               {hasResume
-                ? `当前挂载记录 ID：${activeHistoryId ?? '—'}`
+                ? `当前挂载记录 ID：${activeHistoryId ?? '未关联历史记录'}`
                 : '上传或从历史中选用一份简历后，主流程、面试复盘和简历优化都会一起切换。'}
             </p>
           </div>
