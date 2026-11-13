@@ -200,7 +200,8 @@ jobs:
           name: macos-release
           path: dist/mac
 
-      - name: Download Android artifacts
+      - name: Download Android artifacts (optional)
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: android-release
