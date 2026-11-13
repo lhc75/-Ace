@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "dist:win": "npm run build:native && electron-builder --win --x64",
-    "dist:mac": "npm run build:native && electron-builder --mac dmg --arm64",
+    "dist:mac": "npm run build:native && electron-builder --mac --arm64",
     "build:native": "node-gyp rebuild",
     "test:desktop": "node --test *.test.js"
   },
