@@ -2,7 +2,7 @@ plugins {
     id "com.android.application"
 }
 
-def versionNameValue = project.findProperty("versionName") ?: "2.0.2"
+def versionNameValue = project.findProperty("versionName") ?: "2.0.3"
 
 android {
     namespace "com.interviewace.overlay"
@@ -12,7 +12,7 @@ android {
         applicationId "com.interviewace.overlay"
         minSdk 26
         targetSdk 35
-        versionCode 202
+        versionCode 203
         versionName versionNameValue
     }
 

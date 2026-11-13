@@ -11,6 +11,7 @@ const {
   getPromptOverlayInitialWidth,
   getWindowsStartupSwitches,
   relayChildOutput,
+  shouldApplyOverlayPassthrough,
   shouldOverlayPassthrough,
   writeToStreamSafely,
 } = require('./windowOptions');
@@ -25,6 +26,13 @@ test('stealth overlay passes clicks through only while the cursor is off the pan
   assert.equal(shouldOverlayPassthrough(true, false), true);
   // 光标在面板上：放行点击，拖动/按钮/滚动可用（兼得的核心）
   assert.equal(shouldOverlayPassthrough(true, true), false);
+});
+
+test('Windows never enables transparent overlay mouse passthrough', () => {
+  assert.equal(shouldApplyOverlayPassthrough('win32', true, false), false);
+  assert.equal(shouldApplyOverlayPassthrough('win32', true, true), false);
+  assert.equal(shouldApplyOverlayPassthrough('darwin', true, false), true);
+  assert.equal(shouldApplyOverlayPassthrough('linux', true, false), true);
 });
 
 test('Windows overlay disables the native thick frame that can expose a white title strip', () => {

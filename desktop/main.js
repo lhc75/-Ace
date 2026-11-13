@@ -48,7 +48,7 @@ const {
   getWindowsStartupSwitches,
   keepWindowInFront,
   relayChildOutput,
-  shouldOverlayPassthrough,
+  shouldApplyOverlayPassthrough,
   stopFrontReassert,
 } = require('./windowOptions');
 const { protectWindowFromCapture, setWindowCaptureProtection } = require('./captureProtection');
@@ -1361,10 +1361,19 @@ function createTray() {
 // 非隐身时永远可交互。
 function applyOverlayMousePassthrough() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  const passthrough = shouldOverlayPassthrough(stealthModeActive, overlayInteractiveHover);
-  overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
-  // Windows/Electron 的一个已知回归：setIgnoreMouseEvents(true) 会破坏
-  // setContentProtection(true) 的 display affinity；必须在其后重新断言保护。
+  const passthrough = shouldApplyOverlayPassthrough(
+    process.platform,
+    stealthModeActive,
+    overlayInteractiveHover,
+  );
+  if (process.platform === 'win32') {
+    // 恢复 1.5 初版行为：Windows 绝不开启 ignore mouse events。Electron 在
+    // 透明置顶窗上开启该状态后，content protection / WDA_EXCLUDEFROMCAPTURE
+    // 会在部分 Windows 和会议软件组合下失效，导致悬浮窗重新出现在共享画面。
+    overlayWindow.setIgnoreMouseEvents(false);
+  } else {
+    overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
+  }
   protectWindowForCapture(overlayWindow);
   setTimeout(() => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {

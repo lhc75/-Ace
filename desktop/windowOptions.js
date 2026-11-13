@@ -201,10 +201,20 @@ function shouldOverlayPassthrough(stealthActive, interactiveHover) {
   return Boolean(stealthActive) && !interactiveHover;
 }
 
+// Windows 的 setIgnoreMouseEvents(true) 会让 Electron 的 content protection
+// 在透明置顶窗上失效，导致共享屏幕时重新看到悬浮窗。最早的 Windows 版本没有
+// 使用鼠标穿透，因此始终能隐身。Windows 继续使用 focusable:false +
+// showInactive()，不再设置 ignore mouse events；其他平台保留悬停穿透能力。
+function shouldApplyOverlayPassthrough(platform, stealthActive, interactiveHover) {
+  if (platform === 'win32') return false;
+  return shouldOverlayPassthrough(stealthActive, interactiveHover);
+}
+
 module.exports = {
   PROMPT_OVERLAY_DEFAULT_WIDTH,
   PROMPT_OVERLAY_MAX_WIDTH,
   applyOverlayWorkspacePolicy,
+  shouldApplyOverlayPassthrough,
   shouldOverlayPassthrough,
   applyTopMost,
   consumePendingOverlayShow,
