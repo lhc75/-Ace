@@ -45,6 +45,43 @@ bool ReadExcludeFlag(napi_env env, size_t argc, napi_value* argv, bool* out_excl
   return true;
 }
 
+void ApplyCaptureExclusion(HWND window, bool exclude) {
+  DWORD current = WDA_NONE;
+  if (::GetWindowDisplayAffinity(window, &current)) {
+    const DWORD desired = exclude ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+    if (current == desired) return;
+  }
+  ::SetWindowDisplayAffinity(window, exclude ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+}
+
+bool ApplyClickThroughStyle(HWND window, bool enabled, DWORD* out_error) {
+  ::SetLastError(ERROR_SUCCESS);
+  LONG_PTR style = ::GetWindowLongPtrW(window, GWL_EXSTYLE);
+  if (style == 0 && ::GetLastError() != ERROR_SUCCESS) {
+    *out_error = ::GetLastError();
+    return false;
+  }
+
+  // Transparent Electron windows are layered already. Keep LAYERED while only
+  // toggling WS_EX_TRANSPARENT so mouse passing can be changed without
+  // destroying the transparent rendering surface.
+  LONG_PTR next = style | WS_EX_LAYERED;
+  if (enabled) {
+    next |= WS_EX_TRANSPARENT;
+  } else {
+    next &= ~WS_EX_TRANSPARENT;
+  }
+
+  if (next != style) {
+    ::SetLastError(ERROR_SUCCESS);
+    if (!::SetWindowLongPtrW(window, GWL_EXSTYLE, next)) {
+      *out_error = ::GetLastError();
+      return false;
+    }
+  }
+  return true;
+}
+
 napi_value SetResult(napi_env env, bool ok, bool supported, const char* error) {
   napi_value result;
   napi_create_object(env, &result);
@@ -95,11 +132,97 @@ napi_value SetCaptureExclusion(napi_env env, napi_callback_info info) {
   return SetResult(env, true, true, nullptr);
 }
 
+napi_value SetClickThrough(napi_env env, napi_callback_info info) {
+  size_t argc = 2;
+  napi_value argv[2];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+
+  if (argc < 1) {
+    napi_throw_type_error(env, nullptr, "native window handle required");
+    return nullptr;
+  }
+
+  bool enabled = true;
+  if (!ReadExcludeFlag(env, argc, argv, &enabled)) {
+    napi_throw_type_error(env, nullptr, "click-through flag must be a boolean");
+    return nullptr;
+  }
+
+  HWND window = nullptr;
+  const char* handle_error = nullptr;
+  if (!ReadWindowHandle(env, argv[0], &window, &handle_error)) {
+    napi_throw_type_error(env, nullptr, handle_error);
+    return nullptr;
+  }
+
+  DWORD style_error = ERROR_SUCCESS;
+  if (!ApplyClickThroughStyle(window, enabled, &style_error)) {
+    std::string message = "SetWindowLongPtr failed (";
+    message += std::to_string(style_error);
+    message += ")";
+    return SetResult(env, false, true, message.c_str());
+  }
+
+  // A style change may cause Windows/DWM to revisit display affinity. Reapply
+  // capture exclusion after every transition so click-through never makes the
+  // window visible to screen sharing.
+  ApplyCaptureExclusion(window, true);
+  DWORD affinity = WDA_NONE;
+  ::GetWindowDisplayAffinity(window, &affinity);
+  if (affinity != WDA_EXCLUDEFROMCAPTURE) {
+    return SetResult(env, false, true, "capture exclusion was not retained");
+  }
+
+  return SetResult(env, true, true, nullptr);
+}
+
+napi_value GetCaptureState(napi_env env, napi_callback_info info) {
+  size_t argc = 1;
+  napi_value argv[1];
+  napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+  if (argc < 1) {
+    napi_throw_type_error(env, nullptr, "native window handle required");
+    return nullptr;
+  }
+
+  HWND window = nullptr;
+  const char* handle_error = nullptr;
+  if (!ReadWindowHandle(env, argv[0], &window, &handle_error)) {
+    napi_throw_type_error(env, nullptr, handle_error);
+    return nullptr;
+  }
+
+  DWORD affinity = WDA_NONE;
+  const bool affinity_ok = ::GetWindowDisplayAffinity(window, &affinity) != 0;
+  const LONG_PTR style = ::GetWindowLongPtrW(window, GWL_EXSTYLE);
+
+  napi_value result;
+  napi_create_object(env, &result);
+  napi_value value;
+  napi_get_boolean(env, affinity_ok && affinity == WDA_EXCLUDEFROMCAPTURE, &value);
+  napi_set_named_property(env, result, "captureExcluded", value);
+  napi_get_boolean(env, (style & WS_EX_TRANSPARENT) != 0, &value);
+  napi_set_named_property(env, result, "clickThrough", value);
+  napi_get_boolean(env, (style & WS_EX_LAYERED) != 0, &value);
+  napi_set_named_property(env, result, "layered", value);
+  napi_create_uint32(env, affinity, &value);
+  napi_set_named_property(env, result, "affinity", value);
+  return result;
+}
+
 napi_value Init(napi_env env, napi_value exports) {
   napi_value function;
   napi_create_function(
       env, "setCaptureExclusion", NAPI_AUTO_LENGTH, SetCaptureExclusion, nullptr, &function);
   napi_set_named_property(env, exports, "setCaptureExclusion", function);
+
+  napi_create_function(
+      env, "setClickThrough", NAPI_AUTO_LENGTH, SetClickThrough, nullptr, &function);
+  napi_set_named_property(env, exports, "setClickThrough", function);
+
+  napi_create_function(
+      env, "getCaptureState", NAPI_AUTO_LENGTH, GetCaptureState, nullptr, &function);
+  napi_set_named_property(env, exports, "getCaptureState", function);
   return exports;
 }
 

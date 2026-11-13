@@ -46,12 +46,18 @@ const {
   createWindowWebPreferences,
   getPromptOverlayInitialWidth,
   getWindowsStartupSwitches,
+  isPointInsideBounds,
   keepWindowInFront,
   relayChildOutput,
   shouldApplyOverlayPassthrough,
   stopFrontReassert,
 } = require('./windowOptions');
-const { protectWindowFromCapture, setWindowCaptureProtection } = require('./captureProtection');
+const {
+  getNativeWindowCaptureState,
+  protectWindowFromCapture,
+  setNativeWindowClickThrough,
+  setWindowCaptureProtection,
+} = require('./captureProtection');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
@@ -220,6 +226,11 @@ let stealthModeActive = false;
 // 悬浮窗是 focusable:false 的非激活 panel，点击它不会让考试窗口失去 key 焦点，
 // 所以“可交互”与“不抢焦点”可以同时成立。
 let overlayInteractiveHover = false;
+let windowsOverlayHoverTimer = null;
+let windowsOverlayClickThroughState = null;
+let windowsOverlayProtectionTick = 0;
+let windowsClickThroughWarningShown = false;
+let windowsCaptureStateLogged = false;
 let pythonProcess = null;
 let isQuitting = false;
 
@@ -767,6 +778,7 @@ function createOverlayWindow() {
 
   overlayWindow.on('closed', () => {
     overlayWindow = null;
+    windowsOverlayClickThroughState = null;
     if (_blurTimer) { clearTimeout(_blurTimer); _blurTimer = null; }
     stopFrontReassert();
   });
@@ -845,6 +857,7 @@ function showOverlayWindow() {
   // leave it behind an already fullscreen Safari Space.
   applyOverlayWorkspacePolicyForMain(overlayWindow, true);
   protectWindowForCapture(overlayWindow);
+  if (stealthModeActive) applyOverlayMousePassthrough();
   // Some capture paths only resolve the final native window after showInactive
   // returns; reassert once in the next turn of the event loop as well.
   setTimeout(() => {
@@ -1359,21 +1372,97 @@ function createTray() {
 //   滚动在面板上照常可用。forward:true 保证穿透期间 move 事件仍送到渲染进程，
 //   渲染进程才能在光标进入/离开时翻转 overlayInteractiveHover。
 // 非隐身时永远可交互。
+function updateWindowsOverlayClickThrough() {
+  if (process.platform !== 'win32') return;
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+
+  if (!stealthModeActive || !overlayWindow.isVisible()) {
+    if (windowsOverlayClickThroughState !== false) {
+      setNativeWindowClickThrough(overlayWindow, false);
+      windowsOverlayClickThroughState = false;
+    }
+    return;
+  }
+
+  const cursor = screen.getCursorScreenPoint();
+  const interactive = isPointInsideBounds(cursor, overlayWindow.getBounds());
+  overlayInteractiveHover = interactive;
+  const clickThrough = !interactive;
+
+  if (clickThrough !== windowsOverlayClickThroughState) {
+    const result = setNativeWindowClickThrough(overlayWindow, clickThrough);
+    windowsOverlayClickThroughState = clickThrough;
+
+    if (!result?.ok) {
+      if (!windowsClickThroughWarningShown) {
+        windowsClickThroughWarningShown = true;
+        console.warn('native Windows click-through failed, falling back:', result?.error || result);
+      }
+      // Fallback for a missing/broken addon. The packaged app ships the addon;
+      // this path only protects development environments.
+      overlayWindow.setIgnoreMouseEvents(clickThrough, { forward: true });
+    }
+
+    if (!windowsCaptureStateLogged) {
+      windowsCaptureStateLogged = true;
+      const state = getNativeWindowCaptureState(overlayWindow);
+      if (state) console.log('[capture] Windows overlay state:', state);
+    }
+  }
+
+  // Reassert display affinity periodically. Some meeting apps and older Windows
+  // versions revisit WDA state after style/composition changes.
+  windowsOverlayProtectionTick += 1;
+  if (windowsOverlayProtectionTick >= 25) {
+    windowsOverlayProtectionTick = 0;
+    protectWindowForCapture(overlayWindow);
+  }
+}
+
+function startWindowsOverlayClickThroughTracking() {
+  if (process.platform !== 'win32' || !stealthModeActive) return;
+  if (windowsOverlayHoverTimer) return;
+  windowsOverlayClickThroughState = null;
+  updateWindowsOverlayClickThrough();
+  windowsOverlayHoverTimer = setInterval(updateWindowsOverlayClickThrough, 32);
+}
+
+function stopWindowsOverlayClickThroughTracking() {
+  if (windowsOverlayHoverTimer) {
+    clearInterval(windowsOverlayHoverTimer);
+    windowsOverlayHoverTimer = null;
+  }
+  windowsOverlayProtectionTick = 0;
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    setNativeWindowClickThrough(overlayWindow, false);
+    protectWindowForCapture(overlayWindow);
+  }
+  windowsOverlayClickThroughState = null;
+}
+
 function applyOverlayMousePassthrough() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+
+  if (process.platform === 'win32') {
+    // Electron 的 setIgnoreMouseEvents(true) 会同时改 WS_EX_TRANSPARENT 和
+    // WS_EX_LAYERED，并在部分 Windows/会议软件组合中破坏捕获排除。改用原生
+    // 命中穿透：光标在窗外时 click-through，移入窗内后立即恢复交互；两种
+    // 状态切换后都重新断言 WDA_EXCLUDEFROMCAPTURE。
+    if (stealthModeActive) {
+      startWindowsOverlayClickThroughTracking();
+      updateWindowsOverlayClickThrough();
+    } else {
+      stopWindowsOverlayClickThroughTracking();
+    }
+    return;
+  }
+
   const passthrough = shouldApplyOverlayPassthrough(
     process.platform,
     stealthModeActive,
     overlayInteractiveHover,
   );
-  if (process.platform === 'win32') {
-    // 恢复 1.5 初版行为：Windows 绝不开启 ignore mouse events。Electron 在
-    // 透明置顶窗上开启该状态后，content protection / WDA_EXCLUDEFROMCAPTURE
-    // 会在部分 Windows 和会议软件组合下失效，导致悬浮窗重新出现在共享画面。
-    overlayWindow.setIgnoreMouseEvents(false);
-  } else {
-    overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
-  }
+  overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
   protectWindowForCapture(overlayWindow);
   setTimeout(() => {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -2054,6 +2143,10 @@ app.on('activate', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  if (windowsOverlayHoverTimer) {
+    clearInterval(windowsOverlayHoverTimer);
+    windowsOverlayHoverTimer = null;
+  }
   if (overlayPositionSaveTimer) {
     clearTimeout(overlayPositionSaveTimer);
     overlayPositionSaveTimer = null;

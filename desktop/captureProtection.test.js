@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+  getNativeWindowCaptureState,
   protectWindowFromCapture,
+  setNativeWindowClickThrough,
   setWindowCaptureProtection,
 } = require('./captureProtection');
 
@@ -55,6 +57,39 @@ test('native failures never break window operations', () => {
   assert.equal(result.electron, true);
   assert.equal(result.native, false);
   assert.equal(result.nativeError, 'native failure');
+});
+
+test('native click-through is delegated without invoking setIgnoreMouseEvents', () => {
+  const win = makeWindow();
+  const guard = {
+    calls: [],
+    setClickThrough(handle, enabled) {
+      this.calls.push([handle.toString(), enabled]);
+      return { ok: true, supported: true };
+    },
+  };
+
+  const result = setNativeWindowClickThrough(win, true, { nativeGuard: guard });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(guard.calls, [['handle', true]]);
+  assert.deepEqual(win.calls, [['nativeHandle']]);
+});
+
+test('native capture state can be queried for Windows diagnostics', () => {
+  const win = makeWindow();
+  const guard = {
+    getCaptureState(handle) {
+      return { affinity: 17, captureExcluded: true, clickThrough: true, handle: handle.toString() };
+    },
+  };
+
+  assert.deepEqual(getNativeWindowCaptureState(win, { nativeGuard: guard }), {
+    affinity: 17,
+    captureExcluded: true,
+    clickThrough: true,
+    handle: 'handle',
+  });
 });
 
 test('disabling protection clears both Electron and native exclusions', () => {

@@ -10,6 +10,7 @@ const {
   createWindowWebPreferences,
   getPromptOverlayInitialWidth,
   getWindowsStartupSwitches,
+  isPointInsideBounds,
   relayChildOutput,
   shouldApplyOverlayPassthrough,
   shouldOverlayPassthrough,
@@ -28,11 +29,19 @@ test('stealth overlay passes clicks through only while the cursor is off the pan
   assert.equal(shouldOverlayPassthrough(true, true), false);
 });
 
-test('Windows never enables transparent overlay mouse passthrough', () => {
+test('legacy Electron mouse passthrough helper stays disabled on Windows', () => {
   assert.equal(shouldApplyOverlayPassthrough('win32', true, false), false);
   assert.equal(shouldApplyOverlayPassthrough('win32', true, true), false);
   assert.equal(shouldApplyOverlayPassthrough('darwin', true, false), true);
   assert.equal(shouldApplyOverlayPassthrough('linux', true, false), true);
+});
+
+test('overlay hover bounds include edges and reject points outside', () => {
+  const bounds = { x: 100, y: 200, width: 300, height: 150 };
+  assert.equal(isPointInsideBounds({ x: 100, y: 200 }, bounds), true);
+  assert.equal(isPointInsideBounds({ x: 399, y: 349 }, bounds), true);
+  assert.equal(isPointInsideBounds({ x: 400, y: 349 }, bounds), false);
+  assert.equal(isPointInsideBounds({ x: 399, y: 350 }, bounds), false);
 });
 
 test('Windows overlay disables the native thick frame that can expose a white title strip', () => {

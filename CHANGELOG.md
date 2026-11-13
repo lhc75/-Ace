@@ -1,5 +1,15 @@
 # 修复日志
 
+## 2026-11-13 - Windows 透明悬浮窗与鼠标穿透双支持 v2.0.4
+
+### Windows
+- 不再使用会破坏捕获保护的 Electron `setIgnoreMouseEvents(true)`
+- 改为原生切换 `WS_EX_TRANSPARENT` 实现跨进程鼠标穿透
+- 每次穿透状态变化后立即重新应用 `WDA_EXCLUDEFROMCAPTURE`
+- 主进程按光标位置切换状态：窗外点击穿透，移入悬浮窗后恢复拖动、按钮和滚动
+- 周期性重新断言捕获排除，兼容部分 Windows 和会议软件组合
+- CI 新增 Windows 捕获状态与鼠标穿透状态实测
+
 ## 2026-11-13 - Windows 悬浮窗共享隐身修复 v2.0.3
 
 ### Windows 屏幕共享

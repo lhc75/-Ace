@@ -201,6 +201,13 @@ function shouldOverlayPassthrough(stealthActive, interactiveHover) {
   return Boolean(stealthActive) && !interactiveHover;
 }
 
+function isPointInsideBounds(point, bounds) {
+  return point.x >= bounds.x
+    && point.y >= bounds.y
+    && point.x < bounds.x + bounds.width
+    && point.y < bounds.y + bounds.height;
+}
+
 // Windows 的 setIgnoreMouseEvents(true) 会让 Electron 的 content protection
 // 在透明置顶窗上失效，导致共享屏幕时重新看到悬浮窗。最早的 Windows 版本没有
 // 使用鼠标穿透，因此始终能隐身。Windows 继续使用 focusable:false +
@@ -222,6 +229,7 @@ module.exports = {
   createWindowWebPreferences,
   getPromptOverlayInitialWidth,
   getWindowsStartupSwitches,
+  isPointInsideBounds,
   keepWindowInFront,
   relayChildOutput,
   stopFrontReassert,

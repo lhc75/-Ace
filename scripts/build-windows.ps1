@@ -92,6 +92,10 @@ Invoke-Step "校验后端运行目录" {
 
 Invoke-Step "安装桌面端依赖" { npm --prefix $desktop ci }
 
+Invoke-Step "校验 Windows 捕获保护与鼠标穿透" {
+    npm --prefix $desktop run test:win-native
+}
+
 Invoke-Step "生成 Windows 安装包和便携版" {
     npm --prefix $desktop run dist:win
 }

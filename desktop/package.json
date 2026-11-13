@@ -1,6 +1,6 @@
 {
   "name": "interview-assistant-desktop",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "面试Ace InterviewAce - Electron 桌面端",
   "appDisplayName": "面试Ace",
   "main": "main.js",
@@ -9,7 +9,8 @@
     "dist:win": "npm run build:native && electron-builder --win --x64",
     "dist:mac": "npm run build:native && electron-builder --mac --arm64",
     "build:native": "node-gyp rebuild",
-    "test:desktop": "node --test *.test.js"
+    "test:desktop": "node --test *.test.js",
+    "test:win-native": "npm run build:native && electron scripts/windows-capture-check.js"
   },
   "devDependencies": {
     "electron": "^41.3.0",
