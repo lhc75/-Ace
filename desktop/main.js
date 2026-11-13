@@ -15,20 +15,15 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
-// 跨平台：阻止系统 occlusion / window list 计算把 overlay 暴露给屏幕共享 / 录屏 API。
-// 与 BrowserWindow 的 setContentProtection(true) (+ macOS type:'panel') 形成多重防御。
+// 跨平台屏幕共享保护分三层：
+// 1. BrowserWindow.setContentProtection —— 普通窗口与 Electron 自身捕获的兜底；
+// 2. Windows 原生 SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) —— 透明窗口在
+//    鼠标穿透后仍保持“从捕获中排除”，避免 Electron 回退成黑色矩形；
+// 3. macOS 原生 CGSSetWindowCaptureExcludeShape —— ScreenCaptureKit 会忽略
+//    NSWindowSharingNone，而 Chromium 自己用的这个 WindowServer 捕获排除 API
+//    对透明置顶窗仍然有效。
 //
-// macOS 真正生效的方案 (Electron PR #34362, refs issue #19880):
-// 1. enable ScreenCaptureKitMac —— 切换到 macOS 12.3+ 的 ScreenCaptureKit 实现，
-//    PR #34362 在这个 capturer 路径里 *硬编码* 跳过 setContentProtection(true) 的窗口，
-//    是目前唯一让 overlay 在「always-on-top + transparent」配置下真正隐身的方案。
-// 2. disable IOSurfaceCapturer / DesktopCaptureMacV2 —— 关掉旧 capturer 防回退,
-//    它们绕过 NSWindowSharingNone 让 setContentProtection 失效 (这正是 overlay 截图可见的根因)。
-// 3. disable CalculateNativeWinOcclusion —— 防 OS 把 overlay 列入 window list,
-//    被 CGWindowListCreateImage 类老 API 抓到。
-//
-// 三件齐备后, ScreenCaptureKit / CGWindowListCreateImage / Lark/钉钉/Zoom 屏幕共享、
-// macOS 系统截图 (Cmd+Shift+5) 都不再录到 overlay。
+// Chromium 功能开关继续保留为最后一道兼容兜底，避免旧 capturer 路径重新暴露窗口。
 app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac');
 app.commandLine.appendSwitch(
   'disable-features',
@@ -56,6 +51,7 @@ const {
   shouldOverlayPassthrough,
   stopFrontReassert,
 } = require('./windowOptions');
+const { protectWindowFromCapture, setWindowCaptureProtection } = require('./captureProtection');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
@@ -217,6 +213,7 @@ let overlayWindow = null;
 let tray = null;
 // 笔试隐身模式（前端在 笔试模式+录制中 时通过 sync-stealth-mode 同步）：
 // 隐藏托盘图标、悬浮窗默认鼠标穿透，结束笔试恢复。
+let captureProtectionEnabled = true;
 let stealthModeActive = false;
 // 隐身期间悬浮窗是否临时可交互：悬浮窗渲染进程检测到光标进入面板时置 true
 // （放行点击/滚动/拖动到面板本身），光标离开置 false（点击重新穿透到考试窗口）。
@@ -583,6 +580,13 @@ function startPythonBackend() {
   });
 }
 
+function protectWindowForCapture(win) {
+  const winEnabled = win?._captureProtectionEnabled;
+  return protectWindowFromCapture(win, {
+    enabled: winEnabled === false ? false : captureProtectionEnabled,
+  });
+}
+
 function createWindow() {
   const isWindows = process.platform === 'win32';
   mainWindow = new BrowserWindow({
@@ -598,11 +602,7 @@ function createWindow() {
     webPreferences: createWindowWebPreferences(process.platform, path.join(__dirname, 'preload.js')),
   });
 
-  try {
-    mainWindow.setContentProtection(true);
-  } catch (error) {
-    console.warn('main window setContentProtection failed:', error?.message || error);
-  }
+  protectWindowForCapture(mainWindow);
 
   // 每次启动清除缓存，确保加载到最新的前端构建（避免设置里识别引擎等不更新）。
   // clearCache 失败（缓存库损坏 / 文件被占用）不能连累启动：照样加载页面。
@@ -690,8 +690,7 @@ function createOverlayWindow() {
   const initialBounds = initialMode === 'focus' ? getFocusOverlayBounds() : getNormalOverlayBounds(initialMode);
 
   // 透明浮窗: 视觉上能看到桌面, 需要 transparent: true + alpha=0 背景.
-  // 注意: setContentProtection 在 macOS 的透明窗口上只是 best effort,
-  // 对部分截图路径 (尤其是 ScreenCaptureKit) 可能无效; 这是 OS 级限制.
+  // 透明/鼠标穿透窗口需要额外的平台级捕获排除，见 captureProtection.js。
   overlayWindow = new BrowserWindow({
     width: initialBounds.width,
     height: initialBounds.height,
@@ -715,9 +714,10 @@ function createOverlayWindow() {
     }),
   });
 
-  // Content protection 必须尽早调用 —— 等到 ready-to-show 时,
-  // 窗口可能已经被 window server 登记过一次, 导致 NSWindowSharingNone 漏掉初始帧
-  overlayWindow.setContentProtection(true);
+  // Content protection 必须尽早调用。透明窗口仅靠 Electron 的
+  // setContentProtection 在 Windows 的鼠标穿透态和 macOS ScreenCaptureKit 下
+  // 都可能失效，captureProtection 会同时应用平台级捕获排除。
+  protectWindowForCapture(overlayWindow);
   overlayWindow.setBackgroundColor('#00000000');
   overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
   if (stealthModeActive) {
@@ -732,14 +732,14 @@ function createOverlayWindow() {
     } catch { /* older electron */ }
   }
 
-// Content protection / 透明背景 / 禁用焦点需要在多个时机重复断言 (防御纵深)
-function assertOverlayChrome(withAlwaysOnTop = false) {
-  if (!overlayWindow || overlayWindow.isDestroyed()) return;
-  overlayWindow.setContentProtection(true);
-  overlayWindow.setBackgroundColor('#00000000');
-  overlayWindow.setFocusable(false);
-  if (withAlwaysOnTop) overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
-}
+  // Content protection / 透明背景 / 禁用焦点需要在多个时机重复断言 (防御纵深)
+  function assertOverlayChrome(withAlwaysOnTop = false) {
+    if (!overlayWindow || overlayWindow.isDestroyed()) return;
+    protectWindowForCapture(overlayWindow);
+    overlayWindow.setBackgroundColor('#00000000');
+    overlayWindow.setFocusable(false);
+    if (withAlwaysOnTop) overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
+  }
 
   overlayWindow._overlayReady = false;
 
@@ -771,7 +771,11 @@ function assertOverlayChrome(withAlwaysOnTop = false) {
     stopFrontReassert();
   });
   overlayWindow.on('moved', () => schedulePersistOverlayPosition());
-  overlayWindow.on('resize', () => schedulePersistOverlayPosition());
+  overlayWindow.on('resize', () => {
+    // macOS 的捕获排除区域按窗口坐标保存，尺寸变化后需要重新覆盖整个窗口。
+    protectWindowForCapture(overlayWindow);
+    schedulePersistOverlayPosition();
+  });
   overlayWindow.on('focus', () => {
     if (_blurTimer) clearTimeout(_blurTimer);
     _blurTimer = setTimeout(() => {
@@ -840,7 +844,14 @@ function showOverlayWindow() {
   // fullscreen workspace policy while the window is preheated/hidden can
   // leave it behind an already fullscreen Safari Space.
   applyOverlayWorkspacePolicyForMain(overlayWindow, true);
-  overlayWindow.setContentProtection(true);
+  protectWindowForCapture(overlayWindow);
+  // Some capture paths only resolve the final native window after showInactive
+  // returns; reassert once in the next turn of the event loop as well.
+  setTimeout(() => {
+    if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
+      protectWindowForCapture(overlayWindow);
+    }
+  }, 0);
   keepWindowInFront(overlayWindow);
 }
 
@@ -1321,9 +1332,15 @@ function createTray() {
     {
       label: '屏幕共享隐身',
       type: 'checkbox',
-      checked: true,
+      checked: captureProtectionEnabled,
       click: (menuItem) => {
-        mainWindow?.setContentProtection(menuItem.checked);
+        captureProtectionEnabled = Boolean(menuItem.checked);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          setWindowCaptureProtection(mainWindow, captureProtectionEnabled);
+        }
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+          setWindowCaptureProtection(overlayWindow, captureProtectionEnabled);
+        }
       },
     },
     { type: 'separator' },
@@ -1346,6 +1363,14 @@ function applyOverlayMousePassthrough() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const passthrough = shouldOverlayPassthrough(stealthModeActive, overlayInteractiveHover);
   overlayWindow.setIgnoreMouseEvents(passthrough, { forward: true });
+  // Windows/Electron 的一个已知回归：setIgnoreMouseEvents(true) 会破坏
+  // setContentProtection(true) 的 display affinity；必须在其后重新断言保护。
+  protectWindowForCapture(overlayWindow);
+  setTimeout(() => {
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      protectWindowForCapture(overlayWindow);
+    }
+  }, 0);
 }
 
 // 笔试隐身模式（前端在 笔试模式+录制中 时同步）：

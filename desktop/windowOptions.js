@@ -1,3 +1,5 @@
+const { protectWindowFromCapture } = require('./captureProtection');
+
 function createOverlayChromeOptions(platform, preferredResizable) {
   const isWindows = platform === 'win32';
 
@@ -143,7 +145,7 @@ function applyTopMost(win) {
   }
   applyOverlayWorkspacePolicy(win);
   win.setAlwaysOnTop(true, 'screen-saver', 1);
-  win.setContentProtection(true);
+  protectWindowFromCapture(win);
   win.moveTop();
 }
 

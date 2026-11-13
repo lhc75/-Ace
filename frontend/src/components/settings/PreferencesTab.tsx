@@ -299,8 +299,8 @@ export default function PreferencesTab() {
         <div className="mb-2 p-2.5 rounded-lg bg-accent-amber/10 border border-accent-amber/30 text-[11px] text-text-secondary leading-relaxed">
           <div className="font-semibold text-accent-amber mb-0.5">反截图检测说明</div>
           <div>
-            Windows 上通过 <code className="font-mono text-[10px] bg-bg-tertiary/60 px-1 rounded">setContentProtection</code> 可稳定避免被屏幕共享软件截图；
-            macOS 15+ 的 <span className="font-mono text-[10px]">ScreenCaptureKit</span> 会绕过保护位，实际效果请以你自己的环境测试为准。
+            Windows 与 macOS 均使用系统级窗口捕获排除保护悬浮窗；不同会议软件和系统版本仍可能采用不同捕获通道，
+            正式使用前请用相同会议软件预演一次。
           </div>
         </div>
         {overlayEnabled && (
