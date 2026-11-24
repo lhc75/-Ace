@@ -58,6 +58,11 @@ const {
   setNativeWindowClickThrough,
   setWindowCaptureProtection,
 } = require('./captureProtection');
+const {
+  analyzeBitmap,
+  createScreenCaptureCoordinator,
+  orderDisplaysForCapture,
+} = require('./screenCapture');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
@@ -952,47 +957,42 @@ function describeHttpFailure(error) {
   return `${status}${response ? ` response=${response}` : ''}`;
 }
 
-let screenCaptureInFlight = null;
-
 function waitMs(delayMs = 180) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 /**
- * Electron windows use content protection, so a protected window is omitted
- * from macOS screenshots while still physically covering the browser behind it.
- * Hide our windows for one capture frame, then restore only what was visible.
+ * Hiding a window is not always enough on macOS: the native capture-exclusion
+ * shape survives hide/show and can replace the captured desktop with a blank
+ * frame. Suspend that protection only while both windows are off-screen, then
+ * reapply it before showing them again.
  */
-function withWindowsHiddenForScreenCapture(task) {
-  if (screenCaptureInFlight) return screenCaptureInFlight;
+const withWindowsHiddenForScreenCapture = createScreenCaptureCoordinator({
+  getMainWindow: () => mainWindow,
+  getOverlayWindow: () => overlayWindow,
+  getProtectionEnabled: () => captureProtectionEnabled,
+  setProtection: setWindowCaptureProtection,
+  showOverlay: () => showOverlayWindow(),
+  wait: waitMs,
+  platform: process.platform,
+  onError: (error, phase) => {
+    console.warn(`[screen-capture] window ${phase} failed:`, error?.message || error);
+  },
+});
 
-  const operation = (async () => {
-    const mainWasVisible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
-    const overlayWasVisible = Boolean(
-      overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible(),
-    );
-
-    if (overlayWasVisible) overlayWindow.hide();
-    if (mainWasVisible) mainWindow.hide();
-    await waitMs();
-
-    try {
-      return await task();
-    } finally {
-      if (mainWasVisible && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.show();
-      }
-      if (overlayWasVisible && overlayWindow && !overlayWindow.isDestroyed()) {
-        showOverlayWindow();
-      }
-    }
-  })();
-
-  screenCaptureInFlight = operation;
-  operation.finally(() => {
-    if (screenCaptureInFlight === operation) screenCaptureInFlight = null;
-  }).catch(() => {});
-  return operation;
+function isLikelyBlankNativeImage(image) {
+  if (!image || (typeof image.isEmpty === 'function' && image.isEmpty())) {
+    return { blank: true, samples: 0, transparentRatio: 1 };
+  }
+  const size = image.getSize();
+  const longestEdge = Math.max(1, size.width, size.height);
+  const scale = Math.min(1, 96 / longestEdge);
+  const sample = image.resize({
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+    quality: 'good',
+  });
+  return analyzeBitmap(sample.toBitmap());
 }
 
 function normalizeScreenRegion(region) {
@@ -1050,13 +1050,32 @@ function isMacOSScreenCapturePermissionError(detail) {
   );
 }
 
-function captureMacOSScreenImageOnce() {
+function normalizeDisplayBounds(bounds) {
+  const x = Math.trunc(Number(bounds?.x));
+  const y = Math.trunc(Number(bounds?.y));
+  const width = Math.trunc(Number(bounds?.width));
+  const height = Math.trunc(Number(bounds?.height));
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function captureMacOSScreenImageOnce(displayBounds = null) {
   return new Promise((resolve, reject) => {
     const outputPath = path.join(
       app.getPath('temp'),
-      `interview-assistant-screen-${process.pid}-${Date.now()}.jpg`,
+      `interview-assistant-screen-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.png`,
     );
-    const capture = spawn('/usr/sbin/screencapture', ['-x', '-m', '-t', 'jpg', outputPath], {
+    const bounds = normalizeDisplayBounds(displayBounds);
+    const args = ['-x'];
+    if (bounds) {
+      args.push('-R', `${bounds.x},${bounds.y},${bounds.width},${bounds.height}`);
+    } else {
+      args.push('-m');
+    }
+    args.push('-t', 'png', outputPath);
+    const capture = spawn('/usr/sbin/screencapture', args, {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let stderr = '';
@@ -1110,7 +1129,8 @@ function captureMacOSScreenImageOnce() {
           finish(new Error('macOS 系统截图返回空图片'));
           return;
         }
-        console.log(`[screen-capture] source=macos-screencapture size=${image.getSize().width}x${image.getSize().height}`);
+        console.log(`[screen-capture] source=macos-screencapture size=${image.getSize().width}x${image.getSize().height}` +
+          `${bounds ? ` bounds=${bounds.x},${bounds.y},${bounds.width},${bounds.height}` : ''}`);
         finish(null, image);
       } catch (error) {
         finish(error);
@@ -1121,7 +1141,7 @@ function captureMacOSScreenImageOnce() {
 
 let lastMacOSScreenCaptureAt = 0;
 
-async function captureMacOSScreenImage() {
+async function captureMacOSScreenImage(displayBounds = null) {
   const elapsed = Date.now() - lastMacOSScreenCaptureAt;
   if (elapsed < MACOS_SCREEN_CAPTURE_MIN_INTERVAL_MS) {
     await waitMs(MACOS_SCREEN_CAPTURE_MIN_INTERVAL_MS - elapsed);
@@ -1130,7 +1150,7 @@ async function captureMacOSScreenImage() {
   let lastError = null;
   for (let attempt = 1; attempt <= MACOS_SCREEN_CAPTURE_ATTEMPTS; attempt += 1) {
     try {
-      const image = await captureMacOSScreenImageOnce();
+      const image = await captureMacOSScreenImageOnce(displayBounds);
       lastMacOSScreenCaptureAt = Date.now();
       if (attempt > 1) {
         console.log(`[screen-capture] macos retry succeeded attempt=${attempt}`);
@@ -1158,7 +1178,21 @@ async function captureMacOSScreenImage() {
   );
 }
 
-async function captureDesktopScreenDataUrl() {
+function getDisplayForWindow(win) {
+  if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) return null;
+  if (typeof win.getBounds !== 'function') return null;
+  try {
+    const bounds = win.getBounds();
+    return screen.getDisplayNearestPoint({
+      x: bounds.x + Math.round(bounds.width / 2),
+      y: bounds.y + Math.round(bounds.height / 2),
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function captureDesktopScreenDataUrl(captureContext = {}) {
   let cfg = {};
   try {
     cfg = await getBackend('/api/config');
@@ -1170,9 +1204,49 @@ async function captureDesktopScreenDataUrl() {
   let image;
   if (process.platform === 'darwin') {
     // Electron 41 can leave desktopCapturer.getSources() pending on some macOS
-    // ScreenCaptureKit configurations. The system capture command is reliable
-    // here and uses the same screen-recording permission.
-    image = await captureMacOSScreenImage();
+    // ScreenCaptureKit configurations. Capture an explicit display rectangle
+    // instead of relying on `-m`, which can select the wrong monitor.
+    const cursorPoint = screen.getCursorScreenPoint();
+    const cursorDisplay = screen.getDisplayNearestPoint(cursorPoint);
+    const anchorDisplay = (
+      captureContext.overlayWasVisible && getDisplayForWindow(captureContext.overlay)
+    ) || (
+      captureContext.mainWasVisible && getDisplayForWindow(captureContext.main)
+    ) || cursorDisplay;
+    const displays = orderDisplaysForCapture(
+      screen.getAllDisplays(),
+      primaryDisplay,
+      anchorDisplay,
+    );
+    let firstImage = null;
+    let selected = null;
+    for (const display of displays) {
+      const candidate = await captureMacOSScreenImage(display.bounds);
+      const stats = isLikelyBlankNativeImage(candidate);
+      console.log(
+        `[screen-capture] macos display=${display.id ?? 'unknown'}` +
+        ` label=${JSON.stringify(display.label || '')} blank=${stats.blank}` +
+        ` luma=${Number(stats.minLuma).toFixed(1)}-${Number(stats.maxLuma).toFixed(1)}` +
+        ` stddev=${Number(stats.stdDev).toFixed(2)}`,
+      );
+      if (!firstImage) firstImage = candidate;
+      if (!stats.blank) {
+        selected = { image: candidate, display };
+        break;
+      }
+    }
+    if (!firstImage) throw new Error('macOS 系统截图未返回任何显示器画面');
+    if (!selected) {
+      throw new Error(
+        'macOS 截图内容为空：所有显示器都只返回了纯色画面。' +
+        '请确认题目窗口没有被其他应用遮挡，并检查屏幕录制权限。',
+      );
+    }
+    image = selected.image;
+    console.log(
+      `[screen-capture] macos selected display=${selected.display.id ?? 'unknown'}` +
+      ` label=${JSON.stringify(selected.display.label || '')} fallback=${selected.image !== firstImage}`,
+    );
   } else {
     if (!desktopCapturer || typeof desktopCapturer.getSources !== 'function') {
       throw new Error('当前 Electron 不支持桌面屏幕采集');
@@ -1209,10 +1283,10 @@ async function captureDesktopScreenDataUrl() {
 }
 
 function askFromServerScreenThroughDesktop(body = '{}') {
-  return withWindowsHiddenForScreenCapture(async () => {
+  return withWindowsHiddenForScreenCapture(async (captureContext) => {
     let image;
     try {
-      image = await captureDesktopScreenDataUrl();
+      image = await captureDesktopScreenDataUrl(captureContext);
     } catch (error) {
       const detail = describeBackendError(error, '无法获取桌面截图');
       console.error(`[screen-capture] capture failed platform=${process.platform}: ${detail}`);
@@ -1260,9 +1334,9 @@ function askFromServerScreenThroughDesktop(body = '{}') {
 }
 
 function captureServerScreenThroughDesktop() {
-  return withWindowsHiddenForScreenCapture(async () => {
+  return withWindowsHiddenForScreenCapture(async (captureContext) => {
     try {
-      return { ok: true, image: await captureDesktopScreenDataUrl() };
+      return { ok: true, image: await captureDesktopScreenDataUrl(captureContext) };
     } catch (error) {
       const detail = describeBackendError(error, '无法获取桌面截图');
       console.error(`[screen-capture] capture-only failed platform=${process.platform}: ${detail}`);
