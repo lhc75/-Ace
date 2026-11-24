@@ -142,6 +142,12 @@
   "screen_capture_region": "full",
   "screen_capture_max_long_edge": 1600,
   "multi_screen_capture_idle_sec": 10.0,
+  // 本机外部 Electron 应用截图：目标应用需带 --remote-debugging-port 启动。
+  // 只连接 127.0.0.1，不访问远程主机；CDP 失败时自动回退系统截图。
+  "electron_cdp_capture_enabled": false,
+  "electron_cdp_capture_port": 9222,
+  "electron_cdp_capture_title": "",
+  "electron_cdp_capture_url": "",
   "written_exam_mode": false,
   "written_exam_think": false,
 

@@ -63,6 +63,10 @@ const {
   createScreenCaptureCoordinator,
   orderDisplaysForCapture,
 } = require('./screenCapture');
+const {
+  captureElectronCdpImage,
+  waitForCdpTarget,
+} = require('./electronCdpCapture');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
@@ -1201,8 +1205,34 @@ async function captureDesktopScreenDataUrl(captureContext = {}) {
   }
 
   const primaryDisplay = screen.getPrimaryDisplay();
-  let image;
-  if (process.platform === 'darwin') {
+  let image = null;
+  let captureSource = 'system';
+  if (cfg.electron_cdp_capture_enabled) {
+    try {
+      const result = await captureElectronCdpImage({
+        port: cfg.electron_cdp_capture_port || 9222,
+        title: cfg.electron_cdp_capture_title || '',
+        url: cfg.electron_cdp_capture_url || '',
+        targetTimeoutMs: 3000,
+        captureTimeoutMs: 5000,
+      });
+      const candidate = nativeImage.createFromBuffer(result.png);
+      if (!candidate || candidate.isEmpty()) throw new Error('CDP 截图返回空图片');
+      image = candidate;
+      captureSource = 'electron-cdp';
+      console.log(
+        `[screen-capture] source=electron-cdp target=${JSON.stringify(result.target.title)}` +
+        ` url=${JSON.stringify(result.target.url)} bytes=${result.png.length}`,
+      );
+    } catch (error) {
+      console.warn(
+        '[screen-capture] electron-cdp failed, fallback=system:',
+        error?.message || error,
+      );
+    }
+  }
+
+  if (!image && process.platform === 'darwin') {
     // Electron 41 can leave desktopCapturer.getSources() pending on some macOS
     // ScreenCaptureKit configurations. Capture an explicit display rectangle
     // instead of relying on `-m`, which can select the wrong monitor.
@@ -1247,7 +1277,7 @@ async function captureDesktopScreenDataUrl(captureContext = {}) {
       `[screen-capture] macos selected display=${selected.display.id ?? 'unknown'}` +
       ` label=${JSON.stringify(selected.display.label || '')} fallback=${selected.image !== firstImage}`,
     );
-  } else {
+  } else if (!image) {
     if (!desktopCapturer || typeof desktopCapturer.getSources !== 'function') {
       throw new Error('当前 Electron 不支持桌面屏幕采集');
     }
@@ -1267,7 +1297,9 @@ async function captureDesktopScreenDataUrl(captureContext = {}) {
     if (!image || image.isEmpty()) throw new Error('屏幕采集返回空图片');
   }
 
-  image = cropNativeImage(image, cfg.screen_capture_region || 'left_half');
+  if (captureSource !== 'electron-cdp') {
+    image = cropNativeImage(image, cfg.screen_capture_region || 'left_half');
+  }
   const maxLongEdge = Math.max(0, Math.min(4000, Number(cfg.screen_capture_max_long_edge) || 1600));
   const size = image.getSize();
   const longEdge = Math.max(size.width, size.height);
@@ -1835,6 +1867,26 @@ ipcMain.handle('quit-app', () => { isQuitting = true; app.quit(); });
 ipcMain.handle('ask-from-server-screen', (_event, payload = {}) => (
   askFromServerScreenThroughDesktop(JSON.stringify(payload || {}))
 ));
+ipcMain.handle('test-external-cdp', async (_event, payload = {}) => {
+  try {
+    const target = await waitForCdpTarget({
+      port: payload?.port || 9222,
+      title: payload?.title || '',
+      url: payload?.url || '',
+      timeoutMs: 3000,
+    });
+    return {
+      ok: true,
+      target: {
+        title: String(target.title || ''),
+        url: String(target.url || ''),
+        id: String(target.id || ''),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
 ipcMain.handle('get-shortcuts', () => shortcuts);
 ipcMain.handle('update-shortcuts', (_event, updates) => {
   const next = JSON.parse(JSON.stringify(shortcuts));

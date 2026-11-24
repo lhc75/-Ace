@@ -31,6 +31,10 @@ describe('PreferencesTab', () => {
         screen_capture_region: 'left_half',
         screen_capture_max_long_edge: 1600,
         multi_screen_capture_idle_sec: 10,
+        electron_cdp_capture_enabled: false,
+        electron_cdp_capture_port: 9222,
+        electron_cdp_capture_title: '',
+        electron_cdp_capture_url: '',
         written_exam_mode: false,
         written_exam_think: false,
         kb_top_k: 4,
@@ -76,6 +80,44 @@ describe('PreferencesTab', () => {
     await waitFor(() => {
       expect(updateConfigAndRefresh).toHaveBeenCalledWith({ assist_high_churn_short_answer: true })
     })
+  })
+
+  it('saves external Electron CDP capture settings', async () => {
+    render(<PreferencesTab />)
+
+    fireEvent.click(screen.getByText('工作模式'))
+    fireEvent.click(screen.getByText('已关闭（使用系统截图）'))
+
+    await waitFor(() => {
+      expect(updateConfigAndRefresh).toHaveBeenCalledWith({ electron_cdp_capture_enabled: true })
+    })
+  })
+
+  it('tests the external Electron CDP connection with current filters', async () => {
+    const tester = vi.fn().mockResolvedValue({
+      ok: true,
+      target: { id: 'page-1', title: '国考云在线考试', url: 'app://./index.html#/basic' },
+    })
+    window.electronAPI = { testExternalCdpCapture: tester } as any
+    useInterviewStore.setState({
+      config: {
+        ...useInterviewStore.getState().config,
+        electron_cdp_capture_enabled: true,
+        electron_cdp_capture_port: 9333,
+        electron_cdp_capture_title: '国考云',
+        electron_cdp_capture_url: '#/basic',
+      },
+    } as any)
+
+    render(<PreferencesTab />)
+    fireEvent.click(screen.getByText('工作模式'))
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }))
+
+    await waitFor(() => {
+      expect(tester).toHaveBeenCalledWith({ port: 9333, title: '国考云', url: '#/basic' })
+      expect(screen.getByText('已连接：国考云在线考试')).toBeInTheDocument()
+    })
+    delete window.electronAPI
   })
 
   it('allows zero to disable screen capture scaling', async () => {

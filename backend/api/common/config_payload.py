@@ -116,6 +116,19 @@ def build_config_payload(cfg) -> dict:
         "multi_screen_capture_idle_sec": max(
             1.0, min(60.0, float(getattr(cfg, "multi_screen_capture_idle_sec", 10.0) or 10.0))
         ),
+        "electron_cdp_capture_enabled": bool(
+            getattr(cfg, "electron_cdp_capture_enabled", False)
+        ),
+        "electron_cdp_capture_port": max(
+            1,
+            min(65535, int(getattr(cfg, "electron_cdp_capture_port", 9222) or 9222)),
+        ),
+        "electron_cdp_capture_title": str(
+            getattr(cfg, "electron_cdp_capture_title", "") or ""
+        ).strip()[:200],
+        "electron_cdp_capture_url": str(
+            getattr(cfg, "electron_cdp_capture_url", "") or ""
+        ).strip()[:500],
         "written_exam_mode": bool(getattr(cfg, "written_exam_mode", False)),
         "written_exam_think": bool(getattr(cfg, "written_exam_think", False)),
         "kb_enabled": bool(getattr(cfg, "kb_enabled", False)),

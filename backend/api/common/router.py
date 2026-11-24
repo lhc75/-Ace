@@ -122,6 +122,10 @@ class ConfigUpdate(BaseModel):
     screen_capture_region: Optional[str] = None
     screen_capture_max_long_edge: Optional[int] = None
     multi_screen_capture_idle_sec: Optional[float] = None
+    electron_cdp_capture_enabled: Optional[bool] = None
+    electron_cdp_capture_port: Optional[int] = None
+    electron_cdp_capture_title: Optional[str] = None
+    electron_cdp_capture_url: Optional[str] = None
     written_exam_mode: Optional[bool] = None
     written_exam_think: Optional[bool] = None
     generic_stt_api_base_url: Optional[str] = None
@@ -477,6 +481,14 @@ async def api_update_config(body: ConfigUpdate):
             d["multi_screen_capture_idle_sec"] = max(
                 1.0, min(60.0, float(d["multi_screen_capture_idle_sec"]))
             )
+        if "electron_cdp_capture_port" in d:
+            d["electron_cdp_capture_port"] = max(
+                1, min(65535, int(d["electron_cdp_capture_port"]))
+            )
+        if "electron_cdp_capture_title" in d:
+            d["electron_cdp_capture_title"] = str(d["electron_cdp_capture_title"] or "").strip()[:200]
+        if "electron_cdp_capture_url" in d:
+            d["electron_cdp_capture_url"] = str(d["electron_cdp_capture_url"] or "").strip()[:500]
         if "think_effort" in d:
             val = str(d["think_effort"]).strip().lower()
             if val not in THINK_EFFORT_OPTIONS:

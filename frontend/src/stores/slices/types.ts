@@ -123,6 +123,14 @@ export interface AppConfig {
   screen_capture_max_long_edge?: number
   /** 多图截图判题：最后一次截图后等待多少秒再提交 */
   multi_screen_capture_idle_sec?: number
+  /** 是否通过本机 CDP 截取另一个 Electron 应用页面 */
+  electron_cdp_capture_enabled?: boolean
+  /** CDP 调试端口 */
+  electron_cdp_capture_port?: number
+  /** 目标页面标题过滤，留空选第一个页面 */
+  electron_cdp_capture_title?: string
+  /** 目标页面 URL 过滤，留空不限制 */
+  electron_cdp_capture_url?: string
   /** 笔试模式：截屏后选择题直接出答案，编程题直接出代码 */
   written_exam_mode?: boolean
   /** 笔试模式下是否开启深度思考 */

@@ -28,6 +28,11 @@ declare global {
     minimizeWindow: () => Promise<void>
     quitApp: () => Promise<void>
       askFromServerScreen?: (payload?: { override_think_mode?: boolean }) => Promise<unknown>
+      testExternalCdpCapture?: (payload?: { port?: number; title?: string; url?: string }) => Promise<{
+        ok: boolean
+        target?: { id: string; title: string; url: string }
+        error?: string
+      }>
       getShortcuts: () => Promise<Record<string, { action: string; key: string; defaultKey: string; label: string; category: string; status?: string }>>
       updateShortcuts: (shortcuts: Array<{ action: string; key: string }>) => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>
       resetShortcuts: () => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>

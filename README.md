@@ -5,7 +5,7 @@
 面向真实技术面试全流程：实时转写支持四种识别引擎（本地 Whisper / 豆包 / 通用 ASR / 阿里千问），说完即定稿派发；自己的回答也会被麦克风转写记录，供复盘和上下文参考。Electron 桌面端提供屏幕共享隐身、Boss Key、托盘和悬浮问答窗，绝大多数常见面试软件场景下都能避开共享检测，但不同软件策略不同，请务必自行充分实测。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.5-284B63" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.6-284B63" alt="Version" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC%204.0-A23B72" alt="License" />
   <img src="https://img.shields.io/badge/python-3.10+-2A9D8F" alt="Python" />
   <img src="https://img.shields.io/badge/node-18+-E76F51" alt="Node" />
@@ -24,12 +24,12 @@
 
 ## 下载安装
 
-打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v2.0.5**）。
+打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v2.0.6**）。
 
 下载对应平台的安装包，装好即可使用：
 
-- **macOS（Apple Silicon）**：`InterviewAce-2.0.5-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
-- **Windows（x64）**：`InterviewAce-Setup-2.0.5.exe` 安装版，或 `InterviewAssistant-Portable-2.0.5.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
+- **macOS（Apple Silicon）**：`InterviewAce-2.0.6-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
+- **Windows（x64）**：`InterviewAce-Setup-2.0.6.exe` 安装版，或 `InterviewAssistant-Portable-2.0.6.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
 
 > **启动异常排查**：主进程日志在 Windows 的 `%APPDATA%\面试Ace\logs\desktop.log`、macOS 的 `~/Library/Application Support/面试Ace/logs/desktop.log`（后端日志在同目录 `log/` 下）。1.4.5 起 Windows 默认不再启用 `--in-process-gpu`——该开关在部分多显卡/虚拟显示器机器上会导致启动瞬间原生崩溃。若仍遇到「托盘图标一闪就消失」，应用会在下次启动自动降级图形栈重试，也可以设 `IA_SAFE_MODE=1` 以软件渲染启动。
 
@@ -101,7 +101,7 @@
 | **实时面试** | 四引擎转写、边说边出字、说完即答题、多模型并行生成、思考过程展示 |
 | **卡壳补位** | 截图审题、识图模型分析、联网搜索、知识库引用本地笔记 |
 | **个人材料接入** | 简历上传与摘要、JD 对照优化，让答案贴近你的真实经历 |
-| **桌面端体验** | 屏幕共享隐身、Boss Key、托盘、悬浮问答窗、跟随鼠标、应用内检查更新 |
+| **桌面端体验** | 屏幕共享隐身、外部 Electron CDP 截图、Boss Key、托盘、悬浮问答窗、跟随鼠标、应用内检查更新 |
 | **复盘与提升** | 双音轨问答记录、ASR 纠错、逐题分析、能力画像、求职看板 |
 
 ## 面试主流程
@@ -109,7 +109,7 @@
 1. 选择系统音频（对方声音）或麦克风，点击开始。
 2. 左侧实时转写持续落字——开启「面试官实时流式转写」后，对方边说边出字；说完的瞬间整句定稿并立即派发答题。
 3. 右侧答案区按当前模型配置流式生成正式回答，可同时并行多个模型对比取舍。
-4. 需要审图时粘贴截图，把题目、代码片段或页面内容交给识图模型分析。
+4. 需要审图时粘贴截图，把题目、代码片段或页面内容交给识图模型分析；对启用防截屏保护的自有 Electron 客户端，可在 设置 → 工作模式 开启“外部 Electron 截图”，并使用 `--remote-debugging-port=<端口>` 启动目标应用。
 5. 开启知识库后，答案上方显示引用角标，关联你的本地笔记或资料。
 6. 空间紧张时按 `⌘⇧J / Ctrl+Shift+J` 折叠左侧转录面板，让回答区铺满。
 7. 桌面模式下配合悬浮问答窗、Boss Key 和共享隐身使用；笔试场景可切换笔试模式，悬浮窗逐题作答。
@@ -169,7 +169,7 @@
 | **能力分析** | 知识点标签、历史问答记录、薄弱点趋势 |
 | **简历优化** | 上传简历，对照目标 JD 给出匹配度评估、优化建议和改写方向 |
 | **求职看板** | 表格 / 看板双视图、状态标签、拖拽排序、Offer 对比 |
-| **设置中心** | 多模型管理、推理参数、STT 引擎与流式开关、主题、偏好、快捷键、截图区域 |
+| **设置中心** | 多模型管理、推理参数、STT 引擎与流式开关、主题、偏好、快捷键、截图区域、外部 Electron 应用截图 |
 
 ## 技术结构
 

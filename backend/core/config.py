@@ -255,6 +255,11 @@ class AppConfig(BaseModel):
     screen_capture_max_long_edge: int = 1600
     # 多图截图判题：最后一次截图后等待多少秒再提交整批图片
     multi_screen_capture_idle_sec: float = 10.0
+    # 外部 Electron 应用截图：通过本机 Chrome DevTools Protocol 读取页面
+    electron_cdp_capture_enabled: bool = False
+    electron_cdp_capture_port: int = 9222
+    electron_cdp_capture_title: str = ""
+    electron_cdp_capture_url: str = ""
     # 笔试模式：截屏后选择题直接输出答案，编程题直接输出代码，不做分析
     written_exam_mode: bool = False
     # 笔试模式下是否开启 think（深度思考），默认关闭以加快响应
@@ -362,6 +367,11 @@ class AppConfig(BaseModel):
         if not self.models:
             self.models = [_default_model_config()]
         self.screen_capture_max_long_edge = max(0, min(4000, int(self.screen_capture_max_long_edge or 0)))
+        self.electron_cdp_capture_port = max(
+            1, min(65535, int(self.electron_cdp_capture_port or 9222))
+        )
+        self.electron_cdp_capture_title = str(self.electron_cdp_capture_title or "").strip()[:200]
+        self.electron_cdp_capture_url = str(self.electron_cdp_capture_url or "").strip()[:500]
         self.assist_vad_max_speech_sec = max(6.0, min(60.0, float(self.assist_vad_max_speech_sec or 18.0)))
         self.assist_vad_min_speech_sec = max(0.1, min(2.0, float(self.assist_vad_min_speech_sec or 0.3)))
         self.aliyun_stt_max_sentence_silence_ms = (

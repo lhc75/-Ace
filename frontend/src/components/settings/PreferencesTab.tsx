@@ -107,6 +107,13 @@ export default function PreferencesTab() {
   const [scrollBottomPx, setScrollBottomPx] = useState(40)
   const [screenMaxLongEdge, setScreenMaxLongEdge] = useState(1600)
   const [multiScreenIdleSec, setMultiScreenIdleSec] = useState(10)
+  const [cdpPort, setCdpPort] = useState(9222)
+  const [cdpTitle, setCdpTitle] = useState('')
+  const [cdpUrl, setCdpUrl] = useState('')
+  const [cdpTest, setCdpTest] = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message: string }>({
+    status: 'idle',
+    message: '',
+  })
   const [kbTopK, setKbTopK] = useState(4)
   const [kbDeadlineMs, setKbDeadlineMs] = useState(150)
   const [kbAsrDeadlineMs, setKbAsrDeadlineMs] = useState(80)
@@ -122,6 +129,15 @@ export default function PreferencesTab() {
     if (config?.multi_screen_capture_idle_sec != null) {
       setMultiScreenIdleSec(config.multi_screen_capture_idle_sec)
     }
+    if (config?.electron_cdp_capture_port != null) {
+      setCdpPort(config.electron_cdp_capture_port)
+    }
+    if (config?.electron_cdp_capture_title != null) {
+      setCdpTitle(config.electron_cdp_capture_title)
+    }
+    if (config?.electron_cdp_capture_url != null) {
+      setCdpUrl(config.electron_cdp_capture_url)
+    }
     if (config?.kb_top_k != null) {
       setKbTopK(config.kb_top_k)
     }
@@ -135,6 +151,9 @@ export default function PreferencesTab() {
     config?.answer_autoscroll_bottom_px,
     config?.screen_capture_max_long_edge,
     config?.multi_screen_capture_idle_sec,
+    config?.electron_cdp_capture_port,
+    config?.electron_cdp_capture_title,
+    config?.electron_cdp_capture_url,
     config?.kb_top_k,
     config?.kb_deadline_ms,
     config?.kb_asr_deadline_ms,
@@ -154,6 +173,31 @@ export default function PreferencesTab() {
   const showScreenCapture = config != null && hasScreenCapture
   const searchQuery = useSettingsSearch()
   const inSearch = searchQuery.trim().length > 0
+
+  const testExternalCdp = async () => {
+    const tester = window.electronAPI?.testExternalCdpCapture
+    if (!tester) {
+      setCdpTest({ status: 'error', message: '仅桌面端支持 CDP 连接测试' })
+      return
+    }
+    setCdpTest({ status: 'testing', message: '正在连接本机调试端口...' })
+    try {
+      const result = await tester({ port: cdpPort, title: cdpTitle, url: cdpUrl })
+      if (result.ok && result.target) {
+        setCdpTest({
+          status: 'ok',
+          message: `已连接：${result.target.title || result.target.url || '未命名页面'}`,
+        })
+      } else {
+        setCdpTest({ status: 'error', message: result.error || '没有找到匹配的页面' })
+      }
+    } catch (error) {
+      setCdpTest({
+        status: 'error',
+        message: error instanceof Error ? error.message : '连接测试失败',
+      })
+    }
+  }
 
   return (
     <div className="p-5 space-y-5 pb-8" data-in-search={inSearch ? '1' : undefined}>
@@ -490,6 +534,102 @@ export default function PreferencesTab() {
               className="input-field w-full max-w-[120px]"
             />
           </Field>
+        )}
+
+        {showScreenCapture && (
+          <div className="border-t border-bg-hover/40 pt-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Monitor className="w-3.5 h-3.5 text-text-muted" />
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">外部 Electron 截图</span>
+            </div>
+            <Toggle
+              checked={config?.electron_cdp_capture_enabled ?? false}
+              onChange={async (v) => {
+                await autoSave.saveNow({ electron_cdp_capture_enabled: v })
+                setCdpTest({ status: 'idle', message: '' })
+              }}
+              label={config?.electron_cdp_capture_enabled ? '已开启（优先使用 CDP）' : '已关闭（使用系统截图）'}
+            />
+            {config?.electron_cdp_capture_enabled && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="调试端口" hint="目标应用需带 --remote-debugging-port=<端口> 启动，仅连接 127.0.0.1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      step={1}
+                      value={cdpPort}
+                      onChange={(e) => {
+                        const v = Math.max(1, Math.min(65535, Number(e.target.value) || 9222))
+                        setCdpPort(v)
+                        autoSave.saveDebounced({ electron_cdp_capture_port: v })
+                      }}
+                      onBlur={() => {
+                        const v = Math.max(1, Math.min(65535, cdpPort || 9222))
+                        setCdpPort(v)
+                        void autoSave.flush({ electron_cdp_capture_port: v })
+                      }}
+                      className="input-field w-full max-w-[160px]"
+                    />
+                  </Field>
+                  <Field label="窗口标题包含" hint="留空则选择第一个页面">
+                    <input
+                      type="text"
+                      value={cdpTitle}
+                      placeholder="如：国考云"
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setCdpTitle(v)
+                        autoSave.saveDebounced({ electron_cdp_capture_title: v })
+                      }}
+                      onBlur={() => void autoSave.flush({ electron_cdp_capture_title: cdpTitle })}
+                      className="input-field w-full"
+                    />
+                  </Field>
+                </div>
+                <Field label="页面 URL 包含" hint="留空不限制；登录后页面路由变化时可填稳定片段">
+                  <input
+                    type="text"
+                    value={cdpUrl}
+                    placeholder="如：app://./index.html"
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setCdpUrl(v)
+                      autoSave.saveDebounced({ electron_cdp_capture_url: v })
+                    }}
+                    onBlur={() => void autoSave.flush({ electron_cdp_capture_url: cdpUrl })}
+                    className="input-field w-full"
+                  />
+                </Field>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void testExternalCdp()}
+                    disabled={cdpTest.status === 'testing'}
+                    className="px-3 py-1.5 rounded-lg border border-bg-hover bg-bg-tertiary/40 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50"
+                  >
+                    {cdpTest.status === 'testing' ? '测试中...' : '测试连接'}
+                  </button>
+                  {cdpTest.message && (
+                    <span className={`text-[11px] ${
+                      cdpTest.status === 'ok'
+                        ? 'text-accent-green'
+                        : cdpTest.status === 'error'
+                          ? 'text-accent-red'
+                          : 'text-text-muted'
+                    }`}>
+                      {cdpTest.message}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-text-muted leading-relaxed">
+                  CDP 截图读取的是目标 Electron 页面，不受其 setContentProtection 影响；失败时自动回退到系统截图。
+                  调试端口具有页面控制权限，仅对自有或已授权的本机应用启用。
+                </p>
+              </>
+            )}
+          </div>
         )}
 
         {/* 笔试模式 */}

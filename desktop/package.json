@@ -1,6 +1,6 @@
 {
   "name": "interview-assistant-desktop",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "面试Ace InterviewAce - Electron 桌面端",
   "appDisplayName": "面试Ace",
   "main": "main.js",
@@ -28,6 +28,7 @@
       "main.js",
       "captureProtection.js",
       "screenCapture.js",
+      "electronCdpCapture.js",
       "preload.js",
       "shortcuts.js",
       "windowOptions.js",

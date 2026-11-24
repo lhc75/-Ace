@@ -56,3 +56,9 @@ test('preload exposes desktop toast and config update listeners', () => {
   assert.equal(typeof api.onDesktopToast, 'function');
   assert.equal(typeof api.onConfigUpdated, 'function');
 });
+
+test('preload exposes external CDP connection test', async () => {
+  invoked.length = 0;
+  await api.testExternalCdpCapture({ port: 9222 });
+  assert.equal(invoked[0], 'test-external-cdp');
+});
