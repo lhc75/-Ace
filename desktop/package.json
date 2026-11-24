@@ -27,6 +27,7 @@
     "files": [
       "main.js",
       "captureProtection.js",
+      "protectedOverlay.js",
       "screenCapture.js",
       "electronCdpCapture.js",
       "externalCdpApp.js",

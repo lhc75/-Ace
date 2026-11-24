@@ -9,6 +9,7 @@ const {
   screen,
   desktopCapturer,
   dialog,
+  Notification,
 } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -46,11 +47,13 @@ const {
 } = require('./windowOptions');
 const {
   getNativeWindowCaptureState,
+  loadNativeGuard,
   protectWindowFromCapture,
   reassertNativeWindowCaptureProtection,
   setNativeWindowClickThrough,
   setWindowCaptureProtection,
 } = require('./captureProtection');
+const { createProtectedOverlay } = require('./protectedOverlay');
 const {
   analyzeBitmap,
   createScreenCaptureCoordinator,
@@ -223,6 +226,9 @@ let tray = null;
 // 笔试隐身模式（前端在 笔试模式+录制中 时通过 sync-stealth-mode 同步）：
 // 隐藏托盘图标、悬浮窗默认鼠标穿透，结束笔试恢复。
 let captureProtectionEnabled = true;
+const protectedOverlayEnabled = process.platform === 'darwin'
+  && app.commandLine.hasSwitch('ace-protected-overlay');
+let protectedOverlayFailureReported = false;
 let stealthModeActive = false;
 // 隐身期间悬浮窗是否临时可交互：悬浮窗渲染进程检测到光标进入面板时置 true
 // （放行点击/滚动/拖动到面板本身），光标离开置 false（点击重新穿透到考试窗口）。
@@ -784,10 +790,21 @@ function createOverlayWindow() {
 
   overlayWindow._overlayReady = false;
 
+  const overlayURL = new URL('/?overlay=1', SERVER_URL);
+  if (protectedOverlayEnabled) {
+    overlayURL.searchParams.set('presentation', 'protected');
+    overlayWindow._protectedOverlay = createProtectedOverlay(overlayWindow, {
+      url: overlayURL.href,
+      loadGuard: loadNativeGuard,
+      onFailure: reportProtectedOverlayFailure,
+    });
+  }
   overlayWindow.once('ready-to-show', () => {
     assertOverlayChrome(true);
   });
-  overlayWindow.loadURL(`${SERVER_URL}?overlay=1`);
+  overlayWindow.loadURL(overlayURL.href).catch(() => {
+    if (protectedOverlayEnabled) reportProtectedOverlayFailure();
+  });
   overlayWindow.webContents.on('did-finish-load', () => {
     if (!overlayWindow || overlayWindow.isDestroyed()) return;
     assertOverlayChrome();
@@ -866,6 +883,7 @@ function unregisterScreenCaptureFallback() {
 
 function showOverlayWindow() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (overlayWindow._protectedOverlay?.canShow() === false) return;
   if (!lastOverlayState?.visible) {
     overlayWindow._pendingShow = false;
     overlayWindow.hide();
@@ -917,6 +935,18 @@ function notifyMainWindow(channel, payload) {
 function notifyDesktopToast(message, level = 'info') {
   if (!message) return;
   notifyMainWindow('desktop-toast', { message: String(message), level });
+}
+
+function reportProtectedOverlayFailure() {
+  if (protectedOverlayFailureReported) return;
+  protectedOverlayFailureReported = true;
+  const message = '实验悬浮窗无法显示受保护内容。';
+  console.warn('[overlay] protected presentation unavailable');
+  if (Notification.isSupported()) {
+    new Notification({ title: APP_DISPLAY_NAME, body: message, silent: true }).show();
+  } else {
+    notifyDesktopToast(message, 'error');
+  }
 }
 
 function notifyConfigUpdated(config) {
@@ -1606,6 +1636,8 @@ function stopWindowsOverlayClickThroughTracking() {
 
 function applyOverlayMousePassthrough() {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  // The native view receives drag and scroll events directly.
+  if (overlayWindow._protectedOverlay) return;
 
   if (process.platform === 'win32') {
     // Electron 的 setIgnoreMouseEvents(true) 会同时改 WS_EX_TRANSPARENT 和
@@ -2102,6 +2134,9 @@ ipcMain.handle('sync-overlay-window', (_event, payload = {}) => {
   return { ok: true, visible: true };
 });
 ipcMain.handle('get-overlay-state', () => lastOverlayState);
+ipcMain.on('protected-overlay-frame', (event, frame) => {
+  overlayWindow?._protectedOverlay?.submit(event, frame);
+});
 ipcMain.handle('resize-overlay-window', (_event, payload = {}) => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return { ok: false };
   const mode = resolveOverlayMode();

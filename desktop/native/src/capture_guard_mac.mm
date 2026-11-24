@@ -5,6 +5,8 @@
 #include <dlfcn.h>
 #include <string.h>
 
+void ExportProtectedOverlay(napi_env env, napi_value exports);
+
 // Chromium uses this private WindowServer API for screenshot protection on
 // current macOS releases. NSWindow.sharingType is ignored by ScreenCaptureKit,
 // while CGSSetWindowCaptureExcludeShape is the capture-exclusion path used by
@@ -142,6 +144,7 @@ napi_value Init(napi_env env, napi_value exports) {
   napi_create_function(
       env, "setCaptureExclusion", NAPI_AUTO_LENGTH, SetCaptureExclusion, nullptr, &function);
   napi_set_named_property(env, exports, "setCaptureExclusion", function);
+  ExportProtectedOverlay(env, exports);
   return exports;
 }
 

@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resizeOverlayWindow: (payload) => ipcRenderer.invoke('resize-overlay-window', payload),
   destroyOverlay: () => ipcRenderer.invoke('destroy-overlay'),
   getOverlayState: () => ipcRenderer.invoke('get-overlay-state'),
+  publishProtectedOverlayFrame: (frame) => ipcRenderer.send('protected-overlay-frame', frame),
   onOverlayState: (listener) => {
     const wrapped = (_event, payload) => listener(payload);
     ipcRenderer.on('overlay-state', wrapped);

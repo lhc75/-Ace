@@ -35,7 +35,7 @@ const OVERLAY_MARKDOWN_COMPONENTS: Components = {
   },
 }
 
-export default function InterviewOverlay() {
+export default function InterviewOverlay({ protectedPresentation = false }: { protectedPresentation?: boolean } = {}) {
   const qaPairs = useInterviewStore((s) => s.qaPairs)
   const streamingIds = useInterviewStore((s) => s.streamingIds)
   const isRecording = useInterviewStore((s) => s.isRecording)
@@ -124,12 +124,13 @@ export default function InterviewOverlay() {
   const displayedQaIndex = displayedQa ? qaPairs.findIndex((item) => item.id === displayedQa.id) : -1
   const isReviewingHistory = Boolean(reviewQaId && displayedQa)
 
+  const answer = displayedQa?.answer
   const answerText =
     displayedQa?.status === 'cancelled'
       ? '上一条回答已取消'
       : displayedQa?.status === 'error'
         ? `保存失败: ${displayedQa.errorMessage || '未知原因'}`
-        : displayedQa?.answer?.trim() || (displayedQa ? (displayedQa.isThinking ? '思考中…' : '正在组织回答…') : '')
+        : (protectedPresentation ? answer : answer?.trim()) || (displayedQa ? (displayedQa.isThinking ? '思考中…' : '正在组织回答…') : '')
   const isStreaming = displayedQa ? streamingIds.includes(displayedQa.id) : false
   const hasContent = Boolean(displayedQa)
   const liveGeneratingQa = useMemo(
@@ -385,6 +386,25 @@ export default function InterviewOverlay() {
   useEffect(() => {
     return window.electronAPI?.onOverlayQuestionCommand?.((direction) => { moveOverlayQuestion(direction) })
   }, [moveOverlayQuestion])
+
+  const protectedText = overlayMode === 'focus' && activeSection
+    ? sliceMaxLines(activeSection.content, maxLines).text
+    : overlayAnswerSlice.text
+  useEffect(() => {
+    if (!protectedPresentation) return
+    window.electronAPI?.publishProtectedOverlayFrame?.({
+      id: overlayMode === 'focus' ? `${displayedQaKey}:${activeFocusTab}` : displayedQaKey,
+      text: enabled && overlayVisible ? protectedText || (isRecording ? '正在聆听…' : '等待会话开始') : '',
+      streaming: isStreaming,
+      follow: overlayMode !== 'prompt' || overlayPromptAutoFollow,
+      fontSize,
+      fontColor,
+      opacity,
+    })
+  }, [activeFocusTab, displayedQaKey, enabled, fontColor, fontSize, isRecording, isStreaming, opacity,
+    overlayMode, overlayPromptAutoFollow, overlayVisible, protectedPresentation, protectedText])
+
+  if (protectedPresentation) return null
 
   if (!enabled) {
     return <div className="h-screen w-screen bg-transparent" />

@@ -53,6 +53,15 @@ declare global {
       resizeOverlayWindow?: (payload: { width?: number; height?: number }) => Promise<{ ok: boolean; width?: number; height?: number; skipped?: boolean }>
       destroyOverlay?: () => Promise<{ ok: boolean }>
       getOverlayState?: () => Promise<(OverlayStatePayload & { visible: boolean }) | null>
+      publishProtectedOverlayFrame?: (frame: {
+        id: string
+        text: string
+        streaming: boolean
+        follow: boolean
+        fontSize: number
+        fontColor: string
+        opacity: number
+      }) => void
       onOverlayState?: (callback: (payload: OverlayStatePayload) => void) => (() => void)
       onShortcuts?: (callback: (payload: Record<string, Record<string, unknown>> | undefined) => void) => (() => void)
       onFocusTabCommand?: (callback: (direction: 'prev' | 'next') => void) => (() => void)
