@@ -1196,43 +1196,62 @@ function getDisplayForWindow(win) {
   }
 }
 
-async function captureDesktopScreenDataUrl(captureContext = {}) {
-  let cfg = {};
+async function loadScreenCaptureConfig() {
   try {
-    cfg = await getBackend('/api/config');
+    return await getBackend('/api/config');
   } catch {
-    // Keep the native capture usable if configuration refresh is temporarily unavailable.
+    // Keep native capture usable if configuration refresh is temporarily unavailable.
+    return {};
   }
+}
 
+function nativeImageToScreenDataUrl(image, cfg, { crop = true } = {}) {
+  if (crop) image = cropNativeImage(image, cfg.screen_capture_region || 'left_half');
+  const maxLongEdge = Math.max(0, Math.min(4000, Number(cfg.screen_capture_max_long_edge) || 1600));
+  const size = image.getSize();
+  const longEdge = Math.max(size.width, size.height);
+  if (maxLongEdge > 0 && longEdge > maxLongEdge) {
+    const scale = maxLongEdge / longEdge;
+    image = image.resize({
+      width: Math.max(1, Math.round(size.width * scale)),
+      height: Math.max(1, Math.round(size.height * scale)),
+      quality: 'best',
+    });
+  }
+  return `data:image/jpeg;base64,${image.toJPEG(88).toString('base64')}`;
+}
+
+async function tryCaptureElectronCdpDataUrl(cfg) {
+  if (!cfg?.electron_cdp_capture_enabled) return null;
+  try {
+    const result = await captureElectronCdpImage({
+      port: cfg.electron_cdp_capture_port || 9222,
+      title: cfg.electron_cdp_capture_title || '',
+      url: cfg.electron_cdp_capture_url || '',
+      targetTimeoutMs: 3000,
+      captureTimeoutMs: 5000,
+    });
+    const candidate = nativeImage.createFromBuffer(result.png);
+    if (!candidate || candidate.isEmpty()) throw new Error('CDP 截图返回空图片');
+    const dataUrl = nativeImageToScreenDataUrl(candidate, cfg, { crop: false });
+    console.log(
+      `[screen-capture] source=electron-cdp target=${JSON.stringify(result.target.title)}` +
+      ` url=${JSON.stringify(result.target.url)} bytes=${result.png.length}`,
+    );
+    return dataUrl;
+  } catch (error) {
+    console.warn(
+      '[screen-capture] electron-cdp failed, fallback=system:',
+      error?.message || error,
+    );
+    return null;
+  }
+}
+
+async function captureSystemDesktopScreenDataUrl(captureContext = {}, cfg = {}) {
   const primaryDisplay = screen.getPrimaryDisplay();
   let image = null;
-  let captureSource = 'system';
-  if (cfg.electron_cdp_capture_enabled) {
-    try {
-      const result = await captureElectronCdpImage({
-        port: cfg.electron_cdp_capture_port || 9222,
-        title: cfg.electron_cdp_capture_title || '',
-        url: cfg.electron_cdp_capture_url || '',
-        targetTimeoutMs: 3000,
-        captureTimeoutMs: 5000,
-      });
-      const candidate = nativeImage.createFromBuffer(result.png);
-      if (!candidate || candidate.isEmpty()) throw new Error('CDP 截图返回空图片');
-      image = candidate;
-      captureSource = 'electron-cdp';
-      console.log(
-        `[screen-capture] source=electron-cdp target=${JSON.stringify(result.target.title)}` +
-        ` url=${JSON.stringify(result.target.url)} bytes=${result.png.length}`,
-      );
-    } catch (error) {
-      console.warn(
-        '[screen-capture] electron-cdp failed, fallback=system:',
-        error?.message || error,
-      );
-    }
-  }
-
-  if (!image && process.platform === 'darwin') {
+  if (process.platform === 'darwin') {
     // Electron 41 can leave desktopCapturer.getSources() pending on some macOS
     // ScreenCaptureKit configurations. Capture an explicit display rectangle
     // instead of relying on `-m`, which can select the wrong monitor.
@@ -1277,7 +1296,7 @@ async function captureDesktopScreenDataUrl(captureContext = {}) {
       `[screen-capture] macos selected display=${selected.display.id ?? 'unknown'}` +
       ` label=${JSON.stringify(selected.display.label || '')} fallback=${selected.image !== firstImage}`,
     );
-  } else if (!image) {
+  } else {
     if (!desktopCapturer || typeof desktopCapturer.getSources !== 'function') {
       throw new Error('当前 Electron 不支持桌面屏幕采集');
     }
@@ -1297,96 +1316,89 @@ async function captureDesktopScreenDataUrl(captureContext = {}) {
     if (!image || image.isEmpty()) throw new Error('屏幕采集返回空图片');
   }
 
-  if (captureSource !== 'electron-cdp') {
-    image = cropNativeImage(image, cfg.screen_capture_region || 'left_half');
-  }
-  const maxLongEdge = Math.max(0, Math.min(4000, Number(cfg.screen_capture_max_long_edge) || 1600));
-  const size = image.getSize();
-  const longEdge = Math.max(size.width, size.height);
-  if (maxLongEdge > 0 && longEdge > maxLongEdge) {
-    const scale = maxLongEdge / longEdge;
-    image = image.resize({
-      width: Math.max(1, Math.round(size.width * scale)),
-      height: Math.max(1, Math.round(size.height * scale)),
-      quality: 'best',
-    });
-  }
-  return `data:image/jpeg;base64,${image.toJPEG(88).toString('base64')}`;
+  return nativeImageToScreenDataUrl(image, cfg, { crop: true });
 }
 
-function askFromServerScreenThroughDesktop(body = '{}') {
-  return withWindowsHiddenForScreenCapture(async (captureContext) => {
-    let image;
-    try {
-      image = await captureDesktopScreenDataUrl(captureContext);
-    } catch (error) {
-      const detail = describeBackendError(error, '无法获取桌面截图');
-      console.error(`[screen-capture] capture failed platform=${process.platform}: ${detail}`);
-      if (process.platform === 'darwin') {
-        throw new Error(`macOS 桌面截图失败：${detail}`);
-      }
-      console.warn(`[screen-capture] native capture failed, fallback=backend detail=${detail}`);
-      try {
-        return await postBackend('/api/ask-from-server-screen', body);
-      } catch (fallbackError) {
-        const fallbackDetail = describeBackendError(fallbackError, '后端截图接口失败');
-        console.error(
-          `[screen-capture] backend fallback failed endpoint=/api/ask-from-server-screen${describeHttpFailure(fallbackError)}: ${fallbackDetail}`,
-        );
-        throw new Error(`桌面截图失败，后备接口也失败：${fallbackDetail}`);
-      }
-    }
+async function captureDesktopScreenDataUrl() {
+  const cfg = await loadScreenCaptureConfig();
+  // CDP reads the target renderer directly, so hiding/protection toggles on our
+  // own windows are unnecessary and can leave transparent overlays looking gray.
+  const externalImage = await tryCaptureElectronCdpDataUrl(cfg);
+  if (externalImage) return externalImage;
+  return withWindowsHiddenForScreenCapture(
+    (captureContext) => captureSystemDesktopScreenDataUrl(captureContext, cfg),
+  );
+}
 
-    let overrideThinkMode;
-    try {
-      const parsed = JSON.parse(body);
-      if (typeof parsed?.override_think_mode === 'boolean') {
-        overrideThinkMode = parsed.override_think_mode;
-      }
-    } catch {
-      // Use the default think mode for malformed or empty override payloads.
+async function askFromServerScreenThroughDesktop(body = '{}') {
+  let image;
+  try {
+    image = await captureDesktopScreenDataUrl();
+  } catch (error) {
+    const detail = describeBackendError(error, '无法获取桌面截图');
+    console.error(`[screen-capture] capture failed platform=${process.platform}: ${detail}`);
+    if (process.platform === 'darwin') {
+      throw new Error(`macOS 桌面截图失败：${detail}`);
     }
-    const requestBody = { images: [image] };
-    if (overrideThinkMode !== undefined) {
-      requestBody.override_think_mode = overrideThinkMode;
-    }
-    const requestPath = '/api/ask-from-server-screens';
-    const requestPayload = JSON.stringify(requestBody);
-    console.log(`[screen-capture] submit endpoint=${requestPath} images=1 bytes=${Buffer.byteLength(requestPayload)}`);
+    console.warn(`[screen-capture] native capture failed, fallback=backend detail=${detail}`);
     try {
-      return await postBackend(requestPath, requestPayload);
-    } catch (error) {
-      const detail = describeBackendError(error, '视觉模型接口失败');
+      return await postBackend('/api/ask-from-server-screen', body);
+    } catch (fallbackError) {
+      const fallbackDetail = describeBackendError(fallbackError, '后端截图接口失败');
       console.error(
-        `[screen-capture] submit failed endpoint=${requestPath}${describeHttpFailure(error)}: ${detail}`,
+        `[screen-capture] backend fallback failed endpoint=/api/ask-from-server-screen${describeHttpFailure(fallbackError)}: ${fallbackDetail}`,
       );
-      throw new Error(`截图已获取，但提交视觉模型失败：${detail}`);
+      throw new Error(`桌面截图失败，后备接口也失败：${fallbackDetail}`);
     }
-  });
+  }
+
+  let overrideThinkMode;
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed?.override_think_mode === 'boolean') {
+      overrideThinkMode = parsed.override_think_mode;
+    }
+  } catch {
+    // Use the default think mode for malformed or empty override payloads.
+  }
+  const requestBody = { images: [image] };
+  if (overrideThinkMode !== undefined) {
+    requestBody.override_think_mode = overrideThinkMode;
+  }
+  const requestPath = '/api/ask-from-server-screens';
+  const requestPayload = JSON.stringify(requestBody);
+  console.log(`[screen-capture] submit endpoint=${requestPath} images=1 bytes=${Buffer.byteLength(requestPayload)}`);
+  try {
+    return await postBackend(requestPath, requestPayload);
+  } catch (error) {
+    const detail = describeBackendError(error, '视觉模型接口失败');
+    console.error(
+      `[screen-capture] submit failed endpoint=${requestPath}${describeHttpFailure(error)}: ${detail}`,
+    );
+    throw new Error(`截图已获取，但提交视觉模型失败：${detail}`);
+  }
 }
 
-function captureServerScreenThroughDesktop() {
-  return withWindowsHiddenForScreenCapture(async (captureContext) => {
-    try {
-      return { ok: true, image: await captureDesktopScreenDataUrl(captureContext) };
-    } catch (error) {
-      const detail = describeBackendError(error, '无法获取桌面截图');
-      console.error(`[screen-capture] capture-only failed platform=${process.platform}: ${detail}`);
-      if (process.platform === 'darwin') {
-        throw new Error(`macOS 桌面截图失败：${detail}`);
-      }
-      console.warn(`[screen-capture] native capture-only failed, fallback=backend detail=${detail}`);
-      try {
-        return await postBackend('/api/capture-server-screen');
-      } catch (fallbackError) {
-        const fallbackDetail = describeBackendError(fallbackError, '后端截图接口失败');
-        console.error(
-          `[screen-capture] capture-only backend fallback failed endpoint=/api/capture-server-screen${describeHttpFailure(fallbackError)}: ${fallbackDetail}`,
-        );
-        throw new Error(`桌面截图失败，后备接口也失败：${fallbackDetail}`);
-      }
+async function captureServerScreenThroughDesktop() {
+  try {
+    return { ok: true, image: await captureDesktopScreenDataUrl() };
+  } catch (error) {
+    const detail = describeBackendError(error, '无法获取桌面截图');
+    console.error(`[screen-capture] capture-only failed platform=${process.platform}: ${detail}`);
+    if (process.platform === 'darwin') {
+      throw new Error(`macOS 桌面截图失败：${detail}`);
     }
-  });
+    console.warn(`[screen-capture] native capture-only failed, fallback=backend detail=${detail}`);
+    try {
+      return await postBackend('/api/capture-server-screen');
+    } catch (fallbackError) {
+      const fallbackDetail = describeBackendError(fallbackError, '后端截图接口失败');
+      console.error(
+        `[screen-capture] capture-only backend fallback failed endpoint=/api/capture-server-screen${describeHttpFailure(fallbackError)}: ${fallbackDetail}`,
+      );
+      throw new Error(`桌面截图失败，后备接口也失败：${fallbackDetail}`);
+    }
+  }
 }
 
 function getBackend(pathname) {
