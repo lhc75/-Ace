@@ -31,6 +31,13 @@ function buildRestartPlan({ appPath, port, platform = process.platform } = {}) {
   if (!normalizedPath) throw new Error('请先选择目标应用');
   const normalizedPort = normalizePort(port);
   const debugArg = `--remote-debugging-port=${normalizedPort}`;
+  const macScreenCaptureArgs = platform === 'darwin'
+    ? [
+        '--enable-features=ScreenCaptureKitMac',
+        '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
+      ]
+    : [];
+  const launchArgs = [debugArg, ...macScreenCaptureArgs];
   const name = appNameFromPath(normalizedPath, platform);
   const isMacAppBundle = platform === 'darwin' && normalizedPath.toLowerCase().endsWith('.app');
 
@@ -53,8 +60,8 @@ function buildRestartPlan({ appPath, port, platform = process.platform } = {}) {
       appName: name,
       quitCommands,
       launch: isMacAppBundle
-        ? { cmd: 'open', args: ['-na', normalizedPath, '--args', debugArg] }
-        : { cmd: normalizedPath, args: [debugArg] },
+        ? { cmd: 'open', args: ['-na', normalizedPath, '--args', ...launchArgs] }
+        : { cmd: normalizedPath, args: launchArgs },
       quitWaitMs: 2000,
     };
   }
@@ -65,7 +72,7 @@ function buildRestartPlan({ appPath, port, platform = process.platform } = {}) {
       platform,
       appName: name,
       quitCommands: [{ cmd: 'taskkill', args: ['/IM', exeName, '/T', '/F'] }],
-      launch: { cmd: normalizedPath, args: [debugArg] },
+      launch: { cmd: normalizedPath, args: launchArgs },
       quitWaitMs: 1200,
     };
   }
@@ -74,7 +81,7 @@ function buildRestartPlan({ appPath, port, platform = process.platform } = {}) {
     platform,
     appName: name,
     quitCommands: [{ cmd: 'pkill', args: ['-TERM', '-f', normalizedPath] }],
-    launch: { cmd: normalizedPath, args: [debugArg] },
+    launch: { cmd: normalizedPath, args: launchArgs },
     quitWaitMs: 1200,
   };
 }

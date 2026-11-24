@@ -741,6 +741,7 @@ export default function PreferencesTab() {
                 </div>
                 <p className="text-[10px] text-text-muted leading-relaxed">
                   CDP 截图读取的是目标 Electron 页面，不受其 setContentProtection 影响；失败时自动回退到系统截图。
+                  macOS 的“启动并连接”会附加 ScreenCaptureKitMac 兼容参数，优先使用会遵守窗口捕获排除的系统路径。
                   调试端口具有页面控制权限，仅对自有或已授权的本机应用启用。
                 </p>
               </>

@@ -3,6 +3,7 @@ const test = require('node:test');
 const {
   getNativeWindowCaptureState,
   protectWindowFromCapture,
+  reassertNativeWindowCaptureProtection,
   setNativeWindowClickThrough,
   setWindowCaptureProtection,
 } = require('./captureProtection');
@@ -118,4 +119,23 @@ test('destroyed windows are left untouched', () => {
 
   assert.deepEqual(result, { electron: false, native: false, nativeSupported: false });
   assert.deepEqual(win.calls, []);
+});
+
+
+test('native protection can be reasserted without touching Electron protection', () => {
+  const win = makeWindow();
+  win._captureProtectionEnabled = true;
+  const guard = {
+    calls: [],
+    setCaptureExclusion(handle, exclude) {
+      this.calls.push([handle.toString(), exclude]);
+      return { ok: true, supported: true };
+    },
+  };
+
+  const result = reassertNativeWindowCaptureProtection(win, { nativeGuard: guard });
+
+  assert.equal(result.native, true);
+  assert.deepEqual(win.calls, [['nativeHandle']]);
+  assert.deepEqual(guard.calls, [['handle', true]]);
 });

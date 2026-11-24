@@ -134,10 +134,38 @@ function protectWindowFromCapture(win, options = {}) {
   return setWindowCaptureProtection(win, enabled, options);
 }
 
+/**
+ * Re-apply only the platform capture exclusion without touching Electron's
+ * content protection. Some screen-sharing apps rebuild their capture surface
+ * after sharing starts, which can drop the private native exclusion.
+ */
+function reassertNativeWindowCaptureProtection(win, options = {}) {
+  const result = { native: false, nativeSupported: false };
+  if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) return result;
+  if (win._captureProtectionEnabled === false) return result;
+  const guard = Object.prototype.hasOwnProperty.call(options, 'nativeGuard')
+    ? options.nativeGuard
+    : loadNativeGuard();
+  if (!guard || typeof guard.setCaptureExclusion !== 'function'
+      || typeof win.getNativeWindowHandle !== 'function') {
+    return result;
+  }
+  try {
+    const nativeResult = guard.setCaptureExclusion(win.getNativeWindowHandle(), true);
+    result.native = Boolean(nativeResult?.ok);
+    result.nativeSupported = Boolean(nativeResult?.supported);
+    if (nativeResult?.error) result.nativeError = nativeResult.error;
+  } catch (error) {
+    result.nativeError = error?.message || String(error);
+  }
+  return result;
+}
+
 module.exports = {
   getNativeWindowCaptureState,
   loadNativeGuard,
   protectWindowFromCapture,
+  reassertNativeWindowCaptureProtection,
   resetNativeGuardForTests,
   setNativeWindowClickThrough,
   setWindowCaptureProtection,

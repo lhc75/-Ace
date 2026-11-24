@@ -55,6 +55,7 @@ const {
 const {
   getNativeWindowCaptureState,
   protectWindowFromCapture,
+  reassertNativeWindowCaptureProtection,
   setNativeWindowClickThrough,
   setWindowCaptureProtection,
 } = require('./captureProtection');
@@ -241,6 +242,7 @@ let windowsOverlayClickThroughState = null;
 let windowsOverlayProtectionTick = 0;
 let windowsClickThroughWarningShown = false;
 let windowsCaptureStateLogged = false;
+let captureProtectionReassertTimer = null;
 let pythonProcess = null;
 let isQuitting = false;
 
@@ -608,6 +610,21 @@ function protectWindowForCapture(win) {
   });
 }
 
+function startCaptureProtectionReassert() {
+  if (captureProtectionReassertTimer) return;
+  captureProtectionReassertTimer = setInterval(() => {
+    if (!captureProtectionEnabled) return;
+    for (const win of [mainWindow, overlayWindow]) {
+      if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) continue;
+      if (typeof win.isVisible === 'function' && !win.isVisible()) continue;
+      reassertNativeWindowCaptureProtection(win);
+    }
+  }, 500);
+  if (typeof captureProtectionReassertTimer.unref === 'function') {
+    captureProtectionReassertTimer.unref();
+  }
+}
+
 function createWindow() {
   const isWindows = process.platform === 'win32';
   mainWindow = new BrowserWindow({
@@ -651,6 +668,12 @@ function createWindow() {
       startupWatchdog = null;
     }
     mainWindow.show();
+    protectWindowForCapture(mainWindow);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+        protectWindowForCapture(mainWindow);
+      }
+    }, 0);
     console.log('[startup] main window shown');
     // 悬浮窗预热必须留在“启动稳定判定”之前：现场发现透明悬浮窗的创建正是
     // 某些显卡驱动崩溃的触发点，崩在这里要让哨兵看到（pendingAttempt 尚未清除），
@@ -695,6 +718,14 @@ function createWindow() {
     mainWindow.on('hide', () => { app.dock.hide(); });
     mainWindow.on('show', () => { app.dock.show(); });
   }
+  mainWindow.on('show', () => {
+    protectWindowForCapture(mainWindow);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+        protectWindowForCapture(mainWindow);
+      }
+    }, 0);
+  });
 
   // 关闭按钮 = 真正退出
   mainWindow.on('close', () => {
@@ -2299,6 +2330,7 @@ async function startApp() {
   }
 
   createWindow();
+  startCaptureProtectionReassert();
   try {
     createTray();
   } catch (error) {
@@ -2354,6 +2386,10 @@ app.on('activate', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  if (captureProtectionReassertTimer) {
+    clearInterval(captureProtectionReassertTimer);
+    captureProtectionReassertTimer = null;
+  }
   if (windowsOverlayHoverTimer) {
     clearInterval(windowsOverlayHoverTimer);
     windowsOverlayHoverTimer = null;

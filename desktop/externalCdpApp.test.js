@@ -21,7 +21,14 @@ test('builds a macOS app restart plan with debug port', () => {
   assert.match(plan.quitCommands[0].args[1], /国考云/);
   assert.deepEqual(plan.launch, {
     cmd: 'open',
-    args: ['-na', '/Applications/国考云.app', '--args', '--remote-debugging-port=9222'],
+    args: [
+      '-na',
+      '/Applications/国考云.app',
+      '--args',
+      '--remote-debugging-port=9222',
+      '--enable-features=ScreenCaptureKitMac',
+      '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
+    ],
   });
 });
 
@@ -70,6 +77,8 @@ test('restarts the target with injected process helpers', async () => {
     '/Applications/国考云.app',
     '--args',
     '--remote-debugging-port=9222',
+    '--enable-features=ScreenCaptureKitMac',
+    '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
   ]);
   assert.equal(sleeps[0], 2000);
   assert.equal(unrefCalled, true);
