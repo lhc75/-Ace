@@ -9,6 +9,8 @@ import {
   ChevronDown,
   BookOpen,
   Keyboard,
+  FolderOpen,
+  RefreshCw,
 } from 'lucide-react'
 import { useInterviewStore } from '@/stores/configStore'
 import { useShortcutsStore } from '@/stores/shortcutsStore'
@@ -110,6 +112,8 @@ export default function PreferencesTab() {
   const [cdpPort, setCdpPort] = useState(9222)
   const [cdpTitle, setCdpTitle] = useState('')
   const [cdpUrl, setCdpUrl] = useState('')
+  const [cdpAppPath, setCdpAppPath] = useState('')
+  const [cdpBusy, setCdpBusy] = useState<'test' | 'restart' | null>(null)
   const [cdpTest, setCdpTest] = useState<{ status: 'idle' | 'testing' | 'ok' | 'error'; message: string }>({
     status: 'idle',
     message: '',
@@ -138,6 +142,9 @@ export default function PreferencesTab() {
     if (config?.electron_cdp_capture_url != null) {
       setCdpUrl(config.electron_cdp_capture_url)
     }
+    if (config?.electron_cdp_capture_app_path != null) {
+      setCdpAppPath(config.electron_cdp_capture_app_path)
+    }
     if (config?.kb_top_k != null) {
       setKbTopK(config.kb_top_k)
     }
@@ -154,6 +161,7 @@ export default function PreferencesTab() {
     config?.electron_cdp_capture_port,
     config?.electron_cdp_capture_title,
     config?.electron_cdp_capture_url,
+    config?.electron_cdp_capture_app_path,
     config?.kb_top_k,
     config?.kb_deadline_ms,
     config?.kb_asr_deadline_ms,
@@ -180,6 +188,7 @@ export default function PreferencesTab() {
       setCdpTest({ status: 'error', message: '仅桌面端支持 CDP 连接测试' })
       return
     }
+    setCdpBusy('test')
     setCdpTest({ status: 'testing', message: '正在连接本机调试端口...' })
     try {
       const result = await tester({ port: cdpPort, title: cdpTitle, url: cdpUrl })
@@ -196,6 +205,66 @@ export default function PreferencesTab() {
         status: 'error',
         message: error instanceof Error ? error.message : '连接测试失败',
       })
+    } finally {
+      setCdpBusy(null)
+    }
+  }
+
+  const selectExternalApp = async () => {
+    const selector = window.electronAPI?.selectExternalCdpApp
+    if (!selector) {
+      setCdpTest({ status: 'error', message: '仅桌面端支持选择目标应用' })
+      return
+    }
+    try {
+      const result = await selector()
+      if (result.ok && result.path) {
+        setCdpAppPath(result.path)
+        await autoSave.saveNow({ electron_cdp_capture_app_path: result.path })
+        setCdpTest({ status: 'idle', message: '已选择目标应用，可点击“启动并连接”' })
+      }
+    } catch (error) {
+      setCdpTest({
+        status: 'error',
+        message: error instanceof Error ? error.message : '选择目标应用失败',
+      })
+    }
+  }
+
+  const restartExternalCdp = async () => {
+    const restart = window.electronAPI?.restartExternalCdpApp
+    if (!restart) {
+      setCdpTest({ status: 'error', message: '仅桌面端支持重启目标应用' })
+      return
+    }
+    if (!cdpAppPath.trim()) {
+      setCdpTest({ status: 'error', message: '请先选择目标应用' })
+      return
+    }
+    setCdpBusy('restart')
+    setCdpTest({ status: 'testing', message: '正在退出并重新启动目标应用...' })
+    try {
+      const result = await restart({
+        appPath: cdpAppPath,
+        port: cdpPort,
+        title: cdpTitle,
+        url: cdpUrl,
+      })
+      if (result.ok && result.target) {
+        setCdpTest({
+          status: 'ok',
+          message: `已重启并连接：${result.target.title || result.target.url || '未命名页面'}`,
+        })
+      } else {
+        setCdpTest({ status: 'error', message: result.error || '目标应用启动后仍未连接到调试端口' })
+      }
+    } catch (error) {
+      setCdpTest({
+        status: 'error',
+        message: error instanceof Error ? error.message : '目标应用启动失败',
+      })
+    } finally {
+      setCdpBusy(null)
     }
   }
 
@@ -602,14 +671,61 @@ export default function PreferencesTab() {
                     className="input-field w-full"
                   />
                 </Field>
+                <Field
+                  label="目标应用"
+                  hint="macOS 选择 .app，Windows 选择 .exe；“启动并连接”会先退出当前目标应用"
+                >
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={cdpAppPath}
+                      placeholder="/Applications/国考云.app"
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setCdpAppPath(v)
+                        autoSave.saveDebounced({ electron_cdp_capture_app_path: v })
+                      }}
+                      onBlur={() => void autoSave.flush({ electron_cdp_capture_app_path: cdpAppPath })}
+                      className="input-field min-w-[240px] flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void selectExternalApp()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-bg-hover bg-bg-tertiary/40 text-xs text-text-secondary hover:text-text-primary"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      选择应用
+                    </button>
+                  </div>
+                </Field>
+                <Toggle
+                  checked={config?.electron_cdp_capture_auto_start ?? false}
+                  onChange={async (v) => {
+                    await autoSave.saveNow({ electron_cdp_capture_auto_start: v })
+                  }}
+                  label={
+                    config?.electron_cdp_capture_auto_start
+                      ? '截图不可用时自动重启目标应用'
+                      : '不自动重启目标应用'
+                  }
+                />
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => void restartExternalCdp()}
+                    disabled={cdpBusy !== null || !cdpAppPath.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-accent-blue/40 bg-accent-blue/10 text-xs text-accent-blue hover:bg-accent-blue/15 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${cdpBusy === 'restart' ? 'animate-spin' : ''}`} />
+                    {cdpBusy === 'restart' ? '启动中...' : '启动并连接'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void testExternalCdp()}
-                    disabled={cdpTest.status === 'testing'}
+                    disabled={cdpBusy !== null}
                     className="px-3 py-1.5 rounded-lg border border-bg-hover bg-bg-tertiary/40 text-xs text-text-secondary hover:text-text-primary disabled:opacity-50"
                   >
-                    {cdpTest.status === 'testing' ? '测试中...' : '测试连接'}
+                    {cdpBusy === 'test' ? '测试中...' : '测试连接'}
                   </button>
                   {cdpTest.message && (
                     <span className={`text-[11px] ${

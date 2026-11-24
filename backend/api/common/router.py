@@ -126,6 +126,8 @@ class ConfigUpdate(BaseModel):
     electron_cdp_capture_port: Optional[int] = None
     electron_cdp_capture_title: Optional[str] = None
     electron_cdp_capture_url: Optional[str] = None
+    electron_cdp_capture_app_path: Optional[str] = None
+    electron_cdp_capture_auto_start: Optional[bool] = None
     written_exam_mode: Optional[bool] = None
     written_exam_think: Optional[bool] = None
     generic_stt_api_base_url: Optional[str] = None
@@ -489,6 +491,10 @@ async def api_update_config(body: ConfigUpdate):
             d["electron_cdp_capture_title"] = str(d["electron_cdp_capture_title"] or "").strip()[:200]
         if "electron_cdp_capture_url" in d:
             d["electron_cdp_capture_url"] = str(d["electron_cdp_capture_url"] or "").strip()[:500]
+        if "electron_cdp_capture_app_path" in d:
+            d["electron_cdp_capture_app_path"] = str(
+                d["electron_cdp_capture_app_path"] or ""
+            ).strip()[:2000]
         if "think_effort" in d:
             val = str(d["think_effort"]).strip().lower()
             if val not in THINK_EFFORT_OPTIONS:

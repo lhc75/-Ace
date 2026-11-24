@@ -6,15 +6,18 @@ const {
   orderDisplaysForCapture,
 } = require('./screenCapture');
 
-function makeWindow(name, visible) {
+function makeWindow(name, visible, focused = false) {
   return {
     name,
     visible,
+    focused,
     calls: [],
     isDestroyed() { return false; },
     isVisible() { return this.visible; },
+    isFocused() { return this.focused; },
     hide() { this.visible = false; this.calls.push('hide'); },
     show() { this.visible = true; this.calls.push('show'); },
+    showInactive() { this.visible = true; this.calls.push('showInactive'); },
   };
 }
 
@@ -77,6 +80,8 @@ test('capture coordinator hides, clears protection, restores, then shows windows
     assert.equal(context.overlay, overlay);
     assert.equal(context.mainWasVisible, true);
     assert.equal(context.overlayWasVisible, true);
+    assert.equal(context.mainWasFocused, false);
+    assert.equal(context.overlayWasFocused, false);
     return 'image';
   });
 
@@ -99,6 +104,22 @@ test('capture coordinator hides, clears protection, restores, then shows windows
   ]);
   assert.equal(main.visible, true);
   assert.equal(overlay.visible, true);
+});
+
+test('capture coordinator restores an unfocused main window without stealing focus', async () => {
+  const main = makeWindow('main', true, false);
+  const overlay = makeWindow('overlay', false, false);
+  const run = createScreenCaptureCoordinator({
+    getMainWindow: () => main,
+    getOverlayWindow: () => overlay,
+    getProtectionEnabled: () => true,
+    setProtection: () => {},
+    wait: async () => {},
+    platform: 'darwin',
+  });
+
+  await run(async () => 'image');
+  assert.deepEqual(main.calls, ['hide', 'showInactive']);
 });
 
 test('capture coordinator restores windows and protection after a capture failure', async () => {

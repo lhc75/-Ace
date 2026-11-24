@@ -35,6 +35,8 @@ describe('PreferencesTab', () => {
         electron_cdp_capture_port: 9222,
         electron_cdp_capture_title: '',
         electron_cdp_capture_url: '',
+        electron_cdp_capture_app_path: '',
+        electron_cdp_capture_auto_start: false,
         written_exam_mode: false,
         written_exam_think: false,
         kb_top_k: 4,
@@ -91,6 +93,50 @@ describe('PreferencesTab', () => {
     await waitFor(() => {
       expect(updateConfigAndRefresh).toHaveBeenCalledWith({ electron_cdp_capture_enabled: true })
     })
+  })
+
+  it('selects and restarts the configured external Electron app', async () => {
+    const selector = vi.fn().mockResolvedValue({ ok: true, path: '/Applications/国考云.app' })
+    const restart = vi.fn().mockResolvedValue({
+      ok: true,
+      target: { id: 'page-1', title: '国考云在线考试', url: 'app://./index.html#/basic' },
+    })
+    window.electronAPI = {
+      selectExternalCdpApp: selector,
+      restartExternalCdpApp: restart,
+    } as any
+    useInterviewStore.setState({
+      config: {
+        ...useInterviewStore.getState().config,
+        electron_cdp_capture_enabled: true,
+        electron_cdp_capture_port: 9222,
+        electron_cdp_capture_title: '国考云',
+        electron_cdp_capture_url: '',
+      },
+    } as any)
+
+    render(<PreferencesTab />)
+    fireEvent.click(screen.getByText('工作模式'))
+    fireEvent.click(screen.getByRole('button', { name: /选择应用/ }))
+
+    await waitFor(() => {
+      expect(selector).toHaveBeenCalledTimes(1)
+      expect(updateConfigAndRefresh).toHaveBeenCalledWith({
+        electron_cdp_capture_app_path: '/Applications/国考云.app',
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /启动并连接/ }))
+    await waitFor(() => {
+      expect(restart).toHaveBeenCalledWith({
+        appPath: '/Applications/国考云.app',
+        port: 9222,
+        title: '国考云',
+        url: '',
+      })
+      expect(screen.getByText('已重启并连接：国考云在线考试')).toBeInTheDocument()
+    })
+    delete window.electronAPI
   })
 
   it('tests the external Electron CDP connection with current filters', async () => {

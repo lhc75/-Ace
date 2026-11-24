@@ -67,6 +67,7 @@ const {
   captureElectronCdpImage,
   waitForCdpTarget,
 } = require('./electronCdpCapture');
+const { restartExternalCdpApp } = require('./externalCdpApp');
 const { createMultiScreenBatch } = require('./multiScreenBatch');
 const { stopBackendProcess } = require('./backendShutdown');
 const { registerUpdater } = require('./updater');
@@ -1319,12 +1320,43 @@ async function captureSystemDesktopScreenDataUrl(captureContext = {}, cfg = {}) 
   return nativeImageToScreenDataUrl(image, cfg, { crop: true });
 }
 
+async function ensureExternalCdpAvailable(cfg) {
+  if (!cfg?.electron_cdp_capture_enabled || !cfg?.electron_cdp_capture_auto_start) return false;
+  const appPath = String(cfg.electron_cdp_capture_app_path || '').trim();
+  if (!appPath) return false;
+  const port = cfg.electron_cdp_capture_port || 9222;
+  const title = cfg.electron_cdp_capture_title || '';
+  const url = cfg.electron_cdp_capture_url || '';
+  try {
+    await waitForCdpTarget({ port, title, url, timeoutMs: 400 });
+    return true;
+  } catch {
+    // Target is not running with the required debug port. Restart it once.
+  }
+  try {
+    console.log(`[screen-capture] auto-restart target app path=${JSON.stringify(appPath)} port=${port}`);
+    await restartExternalCdpApp({ appPath, port });
+    await waitForCdpTarget({ port, title, url, timeoutMs: 12000 });
+    return true;
+  } catch (error) {
+    console.warn('[screen-capture] auto-restart target failed:', error?.message || error);
+    return false;
+  }
+}
+
 async function captureDesktopScreenDataUrl() {
   const cfg = await loadScreenCaptureConfig();
   // CDP reads the target renderer directly, so hiding/protection toggles on our
   // own windows are unnecessary and can leave transparent overlays looking gray.
+  await ensureExternalCdpAvailable(cfg);
   const externalImage = await tryCaptureElectronCdpDataUrl(cfg);
   if (externalImage) return externalImage;
+  if (cfg.electron_cdp_capture_enabled && cfg.written_exam_mode) {
+    throw new Error(
+      '笔试模式下外部 Electron 截图不可用，已阻止系统截图回退以避免助手窗口弹出。' +
+      '请确认目标应用已带 --remote-debugging-port=<端口> 启动，并先用“测试连接”验证。',
+    );
+  }
   return withWindowsHiddenForScreenCapture(
     (captureContext) => captureSystemDesktopScreenDataUrl(captureContext, cfg),
   );
@@ -1879,6 +1911,47 @@ ipcMain.handle('quit-app', () => { isQuitting = true; app.quit(); });
 ipcMain.handle('ask-from-server-screen', (_event, payload = {}) => (
   askFromServerScreenThroughDesktop(JSON.stringify(payload || {}))
 ));
+ipcMain.handle('select-external-cdp-app', async () => {
+  const filters = process.platform === 'darwin'
+    ? [{ name: 'macOS 应用', extensions: ['app'] }]
+    : process.platform === 'win32'
+      ? [{ name: 'Windows 应用', extensions: ['exe'] }]
+      : [];
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择目标 Electron 应用',
+    properties: ['openFile'],
+    filters,
+  });
+  if (result.canceled || !result.filePaths?.length) return { ok: false, canceled: true };
+  return { ok: true, path: result.filePaths[0] };
+});
+
+ipcMain.handle('restart-external-cdp-app', async (_event, payload = {}) => {
+  try {
+    const appPath = String(payload?.appPath || '').trim();
+    if (!appPath) throw new Error('请先选择目标应用');
+    if (!fs.existsSync(appPath)) throw new Error(`目标应用不存在：${appPath}`);
+    const port = payload?.port || 9222;
+    await restartExternalCdpApp({ appPath, port, platform: process.platform });
+    const target = await waitForCdpTarget({
+      port,
+      title: payload?.title || '',
+      url: payload?.url || '',
+      timeoutMs: 12000,
+    });
+    return {
+      ok: true,
+      target: {
+        title: String(target.title || ''),
+        url: String(target.url || ''),
+        id: String(target.id || ''),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
+
 ipcMain.handle('test-external-cdp', async (_event, payload = {}) => {
   try {
     const target = await waitForCdpTarget({

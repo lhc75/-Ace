@@ -129,6 +129,12 @@ def build_config_payload(cfg) -> dict:
         "electron_cdp_capture_url": str(
             getattr(cfg, "electron_cdp_capture_url", "") or ""
         ).strip()[:500],
+        "electron_cdp_capture_app_path": str(
+            getattr(cfg, "electron_cdp_capture_app_path", "") or ""
+        ).strip()[:2000],
+        "electron_cdp_capture_auto_start": bool(
+            getattr(cfg, "electron_cdp_capture_auto_start", False)
+        ),
         "written_exam_mode": bool(getattr(cfg, "written_exam_mode", False)),
         "written_exam_think": bool(getattr(cfg, "written_exam_think", False)),
         "kb_enabled": bool(getattr(cfg, "kb_enabled", False)),

@@ -131,6 +131,10 @@ export interface AppConfig {
   electron_cdp_capture_title?: string
   /** 目标页面 URL 过滤，留空不限制 */
   electron_cdp_capture_url?: string
+  /** 目标 Electron 应用路径（macOS .app / Windows .exe） */
+  electron_cdp_capture_app_path?: string
+  /** 截图时 CDP 不可用则自动重启目标应用 */
+  electron_cdp_capture_auto_start?: boolean
   /** 笔试模式：截屏后选择题直接出答案，编程题直接出代码 */
   written_exam_mode?: boolean
   /** 笔试模式下是否开启深度思考 */

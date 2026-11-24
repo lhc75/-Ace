@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   quitApp: () => ipcRenderer.invoke('quit-app'),
   askFromServerScreen: (payload = {}) => ipcRenderer.invoke('ask-from-server-screen', payload),
   testExternalCdpCapture: (payload = {}) => ipcRenderer.invoke('test-external-cdp', payload),
+  selectExternalCdpApp: () => ipcRenderer.invoke('select-external-cdp-app'),
+  restartExternalCdpApp: (payload = {}) => ipcRenderer.invoke('restart-external-cdp-app', payload),
   getShortcuts: () => ipcRenderer.invoke('get-shortcuts'),
   updateShortcuts: (shortcuts) => ipcRenderer.invoke('update-shortcuts', shortcuts),
   resetShortcuts: () => ipcRenderer.invoke('reset-shortcuts'),

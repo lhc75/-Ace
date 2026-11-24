@@ -17,6 +17,15 @@ function isVisibleWindow(win) {
   }
 }
 
+function isFocusedWindow(win) {
+  if (!isUsableWindow(win) || typeof win.isFocused !== 'function') return false;
+  try {
+    return Boolean(win.isFocused());
+  } catch {
+    return false;
+  }
+}
+
 function displayKey(display) {
   if (!display) return '';
   if (display.id !== undefined && display.id !== null) return `id:${display.id}`;
@@ -129,6 +138,8 @@ function createScreenCaptureCoordinator({
       const windows = [main, overlay].filter(isUsableWindow);
       const mainWasVisible = isVisibleWindow(main);
       const overlayWasVisible = isVisibleWindow(overlay);
+      const mainWasFocused = isFocusedWindow(main);
+      const overlayWasFocused = isFocusedWindow(overlay);
       const protectedWindows = windows.map((win) => ({
         win,
         enabled: win._captureProtectionEnabled !== false && Boolean(getProtectionEnabled()),
@@ -153,7 +164,14 @@ function createScreenCaptureCoordinator({
           if (suspended.length > 0) await wait(protectionSettleMs);
         }
 
-        return await task({ main, overlay, mainWasVisible, overlayWasVisible });
+        return await task({
+          main,
+          overlay,
+          mainWasVisible,
+          overlayWasVisible,
+          mainWasFocused,
+          overlayWasFocused,
+        });
       } finally {
         if (platform === 'darwin') {
           for (const entry of protectedWindows) {
@@ -168,7 +186,13 @@ function createScreenCaptureCoordinator({
 
         if (mainWasVisible && isUsableWindow(main)) {
           try {
-            main.show();
+            // Do not steal focus from the target application if the assistant
+            // window was merely visible in the background before capture.
+            if (!mainWasFocused && typeof main.showInactive === 'function') {
+              main.showInactive();
+            } else {
+              main.show();
+            }
           } catch (error) {
             onError(error, 'show-main');
           }

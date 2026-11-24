@@ -62,3 +62,10 @@ test('preload exposes external CDP connection test', async () => {
   await api.testExternalCdpCapture({ port: 9222 });
   assert.equal(invoked[0], 'test-external-cdp');
 });
+
+test('preload exposes external app selection and restart', async () => {
+  invoked.length = 0;
+  await api.selectExternalCdpApp();
+  await api.restartExternalCdpApp({ appPath: '/Applications/国考云.app' });
+  assert.deepEqual(invoked, ['select-external-cdp-app', 'restart-external-cdp-app']);
+});

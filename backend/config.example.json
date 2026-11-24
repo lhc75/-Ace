@@ -85,6 +85,8 @@
   "electron_cdp_capture_port": 9222,
   "electron_cdp_capture_title": "",
   "electron_cdp_capture_url": "",
+  "electron_cdp_capture_app_path": "",
+  "electron_cdp_capture_auto_start": false,
   "written_exam_mode": false,
   "written_exam_think": false,
   "kb_enabled": false,

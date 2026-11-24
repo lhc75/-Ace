@@ -488,6 +488,8 @@ def test_update_config_normalizes_external_cdp_settings(monkeypatch):
         electron_cdp_capture_port=70000,
         electron_cdp_capture_title="  国考云在线考试  ",
         electron_cdp_capture_url="  app://./index.html#/basic  ",
+        electron_cdp_capture_app_path="  /Applications/国考云.app  ",
+        electron_cdp_capture_auto_start=True,
     )
 
     result = _run(common_router.api_update_config(body))
@@ -497,6 +499,8 @@ def test_update_config_normalizes_external_cdp_settings(monkeypatch):
     assert seen["d"]["electron_cdp_capture_port"] == 65535
     assert seen["d"]["electron_cdp_capture_title"] == "国考云在线考试"
     assert seen["d"]["electron_cdp_capture_url"] == "app://./index.html#/basic"
+    assert seen["d"]["electron_cdp_capture_app_path"] == "/Applications/国考云.app"
+    assert seen["d"]["electron_cdp_capture_auto_start"] is True
 
 
 def test_update_config_normalizes_generation_params(monkeypatch):

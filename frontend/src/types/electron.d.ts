@@ -33,6 +33,17 @@ declare global {
         target?: { id: string; title: string; url: string }
         error?: string
       }>
+      selectExternalCdpApp?: () => Promise<{ ok: boolean; path?: string; canceled?: boolean }>
+      restartExternalCdpApp?: (payload?: {
+        appPath?: string
+        port?: number
+        title?: string
+        url?: string
+      }) => Promise<{
+        ok: boolean
+        target?: { id: string; title: string; url: string }
+        error?: string
+      }>
       getShortcuts: () => Promise<Record<string, { action: string; key: string; defaultKey: string; label: string; category: string; status?: string }>>
       updateShortcuts: (shortcuts: Array<{ action: string; key: string }>) => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>
       resetShortcuts: () => Promise<{ ok: boolean; error?: string; shortcuts: Record<string, unknown> }>
