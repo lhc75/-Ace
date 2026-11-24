@@ -30,14 +30,7 @@ function buildRestartPlan({ appPath, port, platform = process.platform } = {}) {
   const normalizedPath = String(appPath || '').trim();
   if (!normalizedPath) throw new Error('请先选择目标应用');
   const normalizedPort = normalizePort(port);
-  const debugArg = `--remote-debugging-port=${normalizedPort}`;
-  const macScreenCaptureArgs = platform === 'darwin'
-    ? [
-        '--enable-features=ScreenCaptureKitMac',
-        '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
-      ]
-    : [];
-  const launchArgs = [debugArg, ...macScreenCaptureArgs];
+  const launchArgs = [`--remote-debugging-port=${normalizedPort}`];
   const name = appNameFromPath(normalizedPath, platform);
   const isMacAppBundle = platform === 'darwin' && normalizedPath.toLowerCase().endsWith('.app');
 

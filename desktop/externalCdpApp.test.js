@@ -11,7 +11,7 @@ test('derives app names from macOS and Windows paths', () => {
   assert.equal(appNameFromPath('C:\\Apps\\国考云.exe', 'win32'), '国考云');
 });
 
-test('builds a macOS app restart plan with debug port', () => {
+test('builds a macOS app restart plan with only the debug port argument', () => {
   const plan = buildRestartPlan({
     appPath: '/Applications/国考云.app',
     port: 9222,
@@ -26,8 +26,6 @@ test('builds a macOS app restart plan with debug port', () => {
       '/Applications/国考云.app',
       '--args',
       '--remote-debugging-port=9222',
-      '--enable-features=ScreenCaptureKitMac',
-      '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
     ],
   });
 });
@@ -77,8 +75,6 @@ test('restarts the target with injected process helpers', async () => {
     '/Applications/国考云.app',
     '--args',
     '--remote-debugging-port=9222',
-    '--enable-features=ScreenCaptureKitMac',
-    '--disable-features=DesktopCaptureMacV2,IOSurfaceCapturer',
   ]);
   assert.equal(sleeps[0], 2000);
   assert.equal(unrefCalled, true);

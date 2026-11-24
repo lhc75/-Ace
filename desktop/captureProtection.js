@@ -41,13 +41,9 @@ function resetNativeGuardForTests() {
 }
 
 /**
- * Keep a window out of both Electron's capture APIs and OS-level screen sharing.
- *
- * Electron's setContentProtection is the portable fallback. On Windows its
- * affinity can be lost after setIgnoreMouseEvents(true), so the native addon
- * re-applies WDA_EXCLUDEFROMCAPTURE. On macOS ScreenCaptureKit ignores
- * NSWindowSharingNone, while Chromium's private CGS capture-exclusion shape is
- * honored; the same native addon applies that shape to the whole window.
+ * Apply Electron's window protection and restore native affinity on Windows.
+ * On macOS the private capture-exclusion shape can produce an opaque window
+ * during display capture. Use Electron's public window setting there.
  */
 function setWindowCaptureProtection(win, enabled = true, options = {}) {
   const result = {
@@ -64,6 +60,8 @@ function setWindowCaptureProtection(win, enabled = true, options = {}) {
   } catch (error) {
     result.electronError = error?.message || String(error);
   }
+
+  if ((options.platform ?? process.platform) !== 'win32') return result;
 
   const guard = Object.prototype.hasOwnProperty.call(options, 'nativeGuard')
     ? options.nativeGuard
@@ -141,6 +139,7 @@ function protectWindowFromCapture(win, options = {}) {
  */
 function reassertNativeWindowCaptureProtection(win, options = {}) {
   const result = { native: false, nativeSupported: false };
+  if ((options.platform ?? process.platform) !== 'win32') return result;
   if (!win || (typeof win.isDestroyed === 'function' && win.isDestroyed())) return result;
   if (win._captureProtectionEnabled === false) return result;
   const guard = Object.prototype.hasOwnProperty.call(options, 'nativeGuard')

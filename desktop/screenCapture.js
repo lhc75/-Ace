@@ -103,9 +103,8 @@ function analyzeBitmap(buffer) {
 }
 
 /**
- * Hide the app windows and temporarily clear the macOS native capture-exclusion
- * shape while they are off-screen. The shape is re-applied before either window
- * is shown again, so screen sharing remains protected outside this short task.
+ * Hide the app windows and temporarily clear macOS window protection while
+ * they are off-screen. Restore the setting before showing either window again.
  */
 function createScreenCaptureCoordinator({
   getMainWindow,

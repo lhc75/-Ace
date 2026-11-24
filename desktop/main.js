@@ -15,15 +15,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
-// 跨平台屏幕共享保护分三层：
-// 1. BrowserWindow.setContentProtection —— 普通窗口与 Electron 自身捕获的兜底；
-// 2. Windows 原生 SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) —— 透明窗口在
-//    鼠标穿透后仍保持“从捕获中排除”，避免 Electron 回退成黑色矩形；
-// 3. macOS 原生 CGSSetWindowCaptureExcludeShape —— ScreenCaptureKit 会忽略
-//    NSWindowSharingNone，而 Chromium 自己用的这个 WindowServer 捕获排除 API
-//    对透明置顶窗仍然有效。
-//
-// Chromium 功能开关继续保留为最后一道兼容兜底，避免旧 capturer 路径重新暴露窗口。
+// Ace 自身的 Chromium 屏幕采集配置。
 app.commandLine.appendSwitch('enable-features', 'ScreenCaptureKitMac');
 app.commandLine.appendSwitch(
   'disable-features',
@@ -611,7 +603,7 @@ function protectWindowForCapture(win) {
 }
 
 function startCaptureProtectionReassert() {
-  if (captureProtectionReassertTimer) return;
+  if (process.platform !== 'win32' || captureProtectionReassertTimer) return;
   captureProtectionReassertTimer = setInterval(() => {
     if (!captureProtectionEnabled) return;
     for (const win of [mainWindow, overlayWindow]) {
@@ -742,7 +734,7 @@ function createOverlayWindow() {
   const initialBounds = initialMode === 'focus' ? getFocusOverlayBounds() : getNormalOverlayBounds(initialMode);
 
   // 透明浮窗: 视觉上能看到桌面, 需要 transparent: true + alpha=0 背景.
-  // 透明/鼠标穿透窗口需要额外的平台级捕获排除，见 captureProtection.js。
+  // Windows 的透明鼠标穿透窗需要额外的原生捕获保护，见 captureProtection.js。
   overlayWindow = new BrowserWindow({
     width: initialBounds.width,
     height: initialBounds.height,
@@ -766,9 +758,6 @@ function createOverlayWindow() {
     }),
   });
 
-  // Content protection 必须尽早调用。透明窗口仅靠 Electron 的
-  // setContentProtection 在 Windows 的鼠标穿透态和 macOS ScreenCaptureKit 下
-  // 都可能失效，captureProtection 会同时应用平台级捕获排除。
   protectWindowForCapture(overlayWindow);
   overlayWindow.setBackgroundColor('#00000000');
   overlayWindow.setAlwaysOnTop(true, 'screen-saver', FRONT_REASSERT_LEVEL);
@@ -997,12 +986,6 @@ function waitMs(delayMs = 180) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-/**
- * Hiding a window is not always enough on macOS: the native capture-exclusion
- * shape survives hide/show and can replace the captured desktop with a blank
- * frame. Suspend that protection only while both windows are off-screen, then
- * reapply it before showing them again.
- */
 const withWindowsHiddenForScreenCapture = createScreenCaptureCoordinator({
   getMainWindow: () => mainWindow,
   getOverlayWindow: () => overlayWindow,

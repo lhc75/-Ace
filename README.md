@@ -2,10 +2,10 @@
 
 实时听题，自动生成专业面试回答。把它理解成一个开着就能用的面试搭档：你负责听题和临场反应，它负责转写、审题、答题——面试官话音落下的同时，答案已经开始生成；卡壳的时候，还能把问答框折叠成一条轻量悬浮窗挂在屏幕角落。
 
-面向真实技术面试全流程：实时转写支持四种识别引擎（本地 Whisper / 豆包 / 通用 ASR / 阿里千问），说完即定稿派发；自己的回答也会被麦克风转写记录，供复盘和上下文参考。Electron 桌面端提供屏幕共享隐身、Boss Key、托盘和悬浮问答窗，绝大多数常见面试软件场景下都能避开共享检测，但不同软件策略不同，请务必自行充分实测。
+面向真实技术面试全流程：实时转写支持四种识别引擎（本地 Whisper / 豆包 / 通用 ASR / 阿里千问），说完即定稿派发；自己的回答也会被麦克风转写记录，供复盘和上下文参考。Electron 桌面端提供窗口捕获保护、Boss Key、托盘和悬浮问答窗。macOS 上使用 ScreenCaptureKit 的应用仍可能采集 Ace 窗口。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.9-284B63" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.0.10-284B63" alt="Version" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC%204.0-A23B72" alt="License" />
   <img src="https://img.shields.io/badge/python-3.10+-2A9D8F" alt="Python" />
   <img src="https://img.shields.io/badge/node-18+-E76F51" alt="Node" />
@@ -24,12 +24,12 @@
 
 ## 下载安装
 
-打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**（当前最新：**v2.0.9**）。
+打包好的桌面版直接见 **[GitHub Releases](https://github.com/lhc75/-Ace/releases)**。
 
 下载对应平台的安装包，装好即可使用：
 
-- **macOS（Apple Silicon）**：`InterviewAce-2.0.9-arm64.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
-- **Windows（x64）**：`InterviewAce-Setup-2.0.9.exe` 安装版，或 `InterviewAssistant-Portable-2.0.9.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
+- **macOS（Apple Silicon）**：下载 `.dmg`，打开后将「面试Ace」拖入「应用程序」。首次启动如提示"已损坏/无法验证开发者"，在 系统设置 → 隐私与安全性 中允许，或执行 `xattr -cr /Applications/面试Ace.app`。
+- **Windows（x64）**：下载 `InterviewAce-Setup-*.exe` 安装版，或 `InterviewAssistant-Portable-*.exe` 便携版（免安装）。如杀毒软件误报，请将安装目录加入信任名单。
 
 > **启动异常排查**：主进程日志在 Windows 的 `%APPDATA%\面试Ace\logs\desktop.log`、macOS 的 `~/Library/Application Support/面试Ace/logs/desktop.log`（后端日志在同目录 `log/` 下）。1.4.5 起 Windows 默认不再启用 `--in-process-gpu`——该开关在部分多显卡/虚拟显示器机器上会导致启动瞬间原生崩溃。若仍遇到「托盘图标一闪就消失」，应用会在下次启动自动降级图形栈重试，也可以设 `IA_SAFE_MODE=1` 以软件渲染启动。
 
@@ -130,7 +130,7 @@
     </td>
     <td width="50%" valign="top">
       <h3>桌面协同</h3>
-      <p>Electron 端提供屏幕共享隐身（系统截图同样录不到悬浮窗）、Boss Key、托盘、悬浮问答窗和全局快捷键，尽量降低主界面暴露。</p>
+      <p>Electron 端提供窗口捕获保护、Boss Key、托盘、悬浮问答窗和全局快捷键。捕获保护的效果取决于操作系统和采集应用。</p>
     </td>
   </tr>
   <tr>
