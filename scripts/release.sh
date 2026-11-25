@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 一键发版：自动 bump 版本号 → 提交 → 打 tag → 推送，触发 GitHub Actions 云端打包并生成 Release。
+# 对外发布统一使用 vX.Y.Z 正式版。发布后确认 GitHub 的最新正式版已提供安装包，客户端才能检测到更新。
 # 用法:
 #   scripts/release.sh          # patch +1（1.3.3 -> 1.3.4）
 #   scripts/release.sh minor    # 次版本 +1（1.3.3 -> 1.4.0）
