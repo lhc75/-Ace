@@ -158,6 +158,23 @@ test.describe('app shell', () => {
   })
 })
 
+test('mobile scan keeps glass answers white on a light page', async ({ context, page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await installMocks(context, {
+    localStorage: { 'ia-color-scheme': 'ace-light' },
+    messages: [{
+      type: 'init',
+      transcriptions: [],
+      qa_pairs: [{ id: 'scan-answer', question: '测试题', answer: '答案正文。\n\n- **重点**' }],
+    }],
+  })
+  await page.goto('/?mobile=1&mode=assist')
+  const panel = page.getByTestId('mobile-floating-answer')
+  await expect(panel.getByText('答案正文。')).toHaveCSS('color', 'rgb(255, 255, 255)')
+  await page.getByRole('tab', { name: 'AI 面试' }).click()
+  await expect(panel.getByText('重点')).toHaveCSS('color', 'rgb(255, 255, 255)')
+})
+
 test.describe('assist mode with WebSocket-driven Q/A', () => {
   test('renders streamed transcripts and answer payload from mock WS', async ({ context, page }) => {
     const now = Math.floor(Date.now() / 1000)

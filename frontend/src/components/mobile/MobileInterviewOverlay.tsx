@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { Eye, PictureInPicture2, X } from 'lucide-react'
 import AnswerMarkdownContent from '@/components/AnswerMarkdownContent'
+import type { ColorSchemeId } from '@/lib/colorScheme'
 import { INTERVIEW_OVERLAY_PIP_REQUEST_EVENT } from '@/lib/interviewOverlay'
 import { useInterviewStore } from '@/stores/configStore'
 import { useUiPrefsStore } from '@/stores/uiPrefsStore'
@@ -76,6 +77,7 @@ function fitCanvasAnswer(
 }
 
 type MobileInterviewOverlayProps = {
+  answerTheme?: ColorSchemeId
   forceEnabled?: boolean
   expanded?: boolean
   showClose?: boolean
@@ -85,6 +87,7 @@ type MobileInterviewOverlayProps = {
 }
 
 export default function MobileInterviewOverlay({
+  answerTheme,
   forceEnabled = false,
   expanded = false,
   showClose = true,
@@ -372,9 +375,9 @@ export default function MobileInterviewOverlay({
             )}
           </div>
           {toolbar}
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5" style={answerStyle}>
+          <div data-theme={answerTheme} className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5" style={answerStyle}>
             {answer ? (
-              <AnswerMarkdownContent answer={answer} colorScheme={colorScheme} stream={Boolean(currentStreamingId)} />
+              <AnswerMarkdownContent answer={answer} colorScheme={answerTheme ?? colorScheme} stream={Boolean(currentStreamingId)} />
             ) : (
               <div className="py-8 text-center text-xs text-current/70">{fallbackText}</div>
             )}

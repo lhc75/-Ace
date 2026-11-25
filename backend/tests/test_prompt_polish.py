@@ -146,9 +146,19 @@ def test_written_exam_prompt_handles_aptitude_and_figure_reasoning(reset_resume)
     assert "图形推理" in p
     assert "旋转翻转" in p
     assert "逐一核对所有选项" in p
-    assert "无法确认：缺少/看不清" in p
+    assert "请补全选项。" in p
     assert "数量关系" in p
     assert "逻辑判断" in p
+
+
+def test_written_exam_short_answers_match_examples(reset_resume):
+    p = build_system_prompt(mode="written_exam")
+    assert "A: B\n" in p
+    assert "A: AC\n" in p
+    assert "A: 60\n30\n" in p
+    assert "A: 未识别到题目。\n" in p
+    assert "只输出一个代码块" in p
+    assert "依据: 一句话" not in p
 
 
 # ---- 4.3 first-sentence hard constraint ---------------------------------

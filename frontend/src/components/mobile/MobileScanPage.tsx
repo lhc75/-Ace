@@ -67,6 +67,7 @@ export default function MobileScanPage() {
   return (
     <div className="min-h-[100dvh] bg-bg-primary" data-testid="mobile-scan-page">
       <MobileInterviewOverlay
+        answerTheme={overlayMode === 'glass' ? 'ace-hc' : isFocusSurface ? 'ace-light' : undefined}
         forceEnabled
         expanded
         showClose={false}
