@@ -2287,6 +2287,39 @@ def test_written_exam_manual_input_uses_exam_mode_and_no_history(monkeypatch: py
     assert captured["messages"] == [{"role": "user", "content": "手动输入的笔试题"}]
 
 
+@pytest.mark.parametrize(
+    ("source", "image", "model_answer", "expected"),
+    [
+        ("manual_text", None, "B", "b"),
+        ("server_screen_left", ["data:image/png;base64,current"], "A\nC D", "acd"),
+    ],
+)
+def test_written_exam_streams_and_saves_compact_choice_answer(
+    monkeypatch: pytest.MonkeyPatch, source, image, model_answer, expected,
+):
+    broadcasts: list[dict] = []
+    cfg = _cfg()
+    cfg.written_exam_mode = True
+    monkeypatch.setattr(answer_worker, "get_config", lambda: cfg)
+
+    def fake_stream(_model_cfg, _messages, **_kwargs):
+        yield "text", "<cho"
+        yield "text", f"ices>{model_answer}</choices>"
+
+    monkeypatch.setattr(answer_worker, "chat_stream_single_model", fake_stream)
+    answer_worker.process_question_parallel(
+        ("当前选择题", image, True, source, {}),
+        seq=0,
+        model_idx=0,
+        sess_v=0,
+        deps=_deps(broadcasts=broadcasts),
+    )
+
+    assert [event["chunk"] for event in broadcasts if event["type"] == "answer_chunk"] == [expected]
+    assert [event["answer"] for event in broadcasts if event["type"] == "answer_done"] == [expected]
+    assert get_session().qa_pairs[-1].answer == expected
+
+
 def test_written_exam_code_question_chain_is_isolated(monkeypatch: pytest.MonkeyPatch):
     broadcasts: list[dict] = []
     captured = {}

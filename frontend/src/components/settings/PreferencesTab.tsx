@@ -785,7 +785,7 @@ export default function PreferencesTab() {
                     <span className="font-medium text-accent-blue">配合截图快捷键使用</span>
                   </p>
                   <ul className="text-[10px] text-text-muted leading-relaxed space-y-0.5 pl-3 list-disc">
-                    <li>选择题 → 直接输出答案（如 A.Redis）</li>
+                    <li>选择题 → 小写字母，同题一行（单选 b，多选 acd）</li>
                     <li>编程题 → 直接输出完整可提交代码</li>
                     <li>填空题 → 直接输出填空内容</li>
                   </ul>

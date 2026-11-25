@@ -13,6 +13,9 @@ PROMPT_MODE_SERVER_SCREEN = "server_screen_code"
 PROMPT_MODE_WRITTEN_EXAM = "written_exam"
 PROMPT_MODE_AI_INTERVIEW = "ai_interview"
 
+_EXAM_CHOICES_OPEN = "<choices>"
+_EXAM_CHOICES_CLOSE = "</choices>"
+
 ANSWER_PROFILE_ASSIST = "assist"
 ANSWER_PROFILE_AI_INTERVIEW = "ai_interview"
 
@@ -76,9 +79,9 @@ _FEWSHOT_SCREEN = (
 _FEWSHOT_EXAM = (
     "\n示例（输入\u2192输出）：\n"
     'Q: "[截图选择题] Redis 默认端口号？ A. 3306 B. 6379 C. 8080 D. 27017"\n'
-    "A: B\n"
+    "A: <choices>b</choices>\n"
     'Q: "[多选题] 哪些是偶数？ A. 2 B. 3 C. 4"\n'
-    "A: AC\n"
+    "A: <choices>ac</choices>\n"
     'Q: "[填空题] 一小时等于____分钟，半小时等于____分钟。"\n'
     "A: 60\n30\n"
     'Q: "[截图] 只有登录表单"\n'
@@ -510,9 +513,11 @@ def _written_exam_prompt_body(language: str, language_lower: str, screen_region:
         "- 图形推理必须同时检查图形整体与局部特征：数量/种类、位置移动、旋转翻转、叠加去同异、封闭区域、对称性、元素关系和黑白变化；先确定最稳定的规律，再选项。\n",
         "- 图形推理要逐一核对所有选项，排除只满足局部特征的干扰项。所有行测选择题均使用下述选择题格式。\n",
         "- 数量关系优先列式并核对单位、范围和选项；逻辑判断核对题干条件、逆否与充分必要关系；类比/定义/言语/资料题只依据题干，不引入题外常识。\n",
-        "选择题(单选/多选/判断):\n",
-        "- 单选只输出一个选项标识，如 B；多选按题面顺序只输出正确标识，如 ABD。没有标识时才直接输出所选内容。\n",
-        "- 判断题格式: 正确 或 错误\n",
+        "选择题（单选/多选）:\n",
+        "- 只写所选项的小写字母。单选如 b，多选如 acd。多选按选项在题面中的顺序紧接着写，同一道题的字母放在同一行，中间不加空格、标点或换行。\n",
+        "- 整次作答都由字母选项组成时，用 <choices> 和 </choices> 包住答案。只有多道不同题时才在题与题之间加 /，如 <choices>b/acd</choices>。\n",
+        "- 没有选项标识时，直接给所选内容，同一道题的多项内容用顿号连接。\n",
+        "- 判断题格式为正确或错误。\n",
         "填空题:\n",
         "- 只输出填空内容，多空按题目顺序每空一行，不编号。\n",
         "- 不要重复题干, 不要解释。\n\n",
@@ -624,11 +629,26 @@ def is_incomplete_intent_answer(text: str) -> bool:
     return bool(_INCOMPLETE_INTENT_ANSWER_RE.fullmatch(normalized))
 
 
+def _format_exam_choices(text: str) -> str:
+    if not text.startswith(_EXAM_CHOICES_OPEN):
+        return text
+    payload = text.removeprefix(_EXAM_CHOICES_OPEN).strip()
+    payload = payload.removesuffix(_EXAM_CHOICES_CLOSE).strip()
+    answers = [re.sub(r"[\s,，、;；.。]+", "", entry).lower() for entry in payload.split("/")]
+    if not all(re.fullmatch(r"[a-z]+", answer) for answer in answers):
+        return payload
+    if len(answers) == 1:
+        return answers[0]
+    return "\n".join(f"{index}. {answer}" for index, answer in enumerate(answers, 1))
+
+
 def postprocess_answer_for_mode(text: str, mode: str) -> str:
     t = strip_web_citation_markers(_strip_internal_thought_artifacts(text))
     if mode in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT, PROMPT_MODE_AI_INTERVIEW):
         t = _strip_meta_preface(t)
         t = _normalize_non_code_markdown(t)
+    elif mode == PROMPT_MODE_WRITTEN_EXAM:
+        t = _format_exam_choices(t)
     return t.strip()
 
 
@@ -644,6 +664,7 @@ class AnswerStreamSanitizer:
         self._started = False
         self._line_start = True
         self._in_code = False
+        self._exam_choice_buffer = ""
 
     def push(self, chunk: str) -> str:
         if not chunk:
@@ -659,15 +680,18 @@ class AnswerStreamSanitizer:
 
     def finish(self) -> str:
         tail, self._buffer = self._buffer, ""
-        return self._clean_emit(tail)
+        return self._clean_emit(tail, final=True)
 
-    def _clean_emit(self, text: str) -> str:
-        if not text:
-            return ""
-        text = self._strip_hidden_stream(text)
-        if not text:
-            return ""
-        text = strip_web_citation_markers(text)
+    def _clean_emit(self, text: str, *, final: bool = False) -> str:
+        text = strip_web_citation_markers(self._strip_hidden_stream(text))
+        if self.mode == PROMPT_MODE_WRITTEN_EXAM and not self._started:
+            text = (self._exam_choice_buffer + text).lstrip()
+            if not final and (text.startswith(_EXAM_CHOICES_OPEN) or _EXAM_CHOICES_OPEN.startswith(text)):
+                self._exam_choice_buffer = text
+                return ""
+            self._exam_choice_buffer = ""
+            if final:
+                text = _format_exam_choices(text)
         if not text:
             return ""
         if (

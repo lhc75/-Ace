@@ -153,12 +153,41 @@ def test_written_exam_prompt_handles_aptitude_and_figure_reasoning(reset_resume)
 
 def test_written_exam_short_answers_match_examples(reset_resume):
     p = build_system_prompt(mode="written_exam")
-    assert "A: B\n" in p
-    assert "A: AC\n" in p
+    assert "A: <choices>b</choices>\n" in p
+    assert "A: <choices>ac</choices>\n" in p
+    assert "同一道题的字母放在同一行" in p
     assert "A: 60\n30\n" in p
     assert "A: 未识别到题目。\n" in p
     assert "只输出一个代码块" in p
     assert "依据: 一句话" not in p
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("<choices>B</choices>", "b"),
+        ("<choices>A.\nC、 D</choices>", "acd"),
+        ("<choices>B / A\nC</choices>", "1. b\n2. ac"),
+        ("A\nC", "A\nC"),
+        ("正确", "正确"),
+        ("```python\nprint('B')\n```", "```python\nprint('B')\n```"),
+    ],
+)
+def test_written_exam_formats_only_marked_choice_answers(answer, expected):
+    sanitizer = create_answer_stream_sanitizer("written_exam")
+    chunks = [sanitizer.push(char) for char in answer]
+    assert "".join(chunks) + sanitizer.finish() == expected
+    assert postprocess_answer_for_mode(answer, "written_exam") == expected
+
+
+def test_written_exam_choice_stream_holds_long_answer_until_formatted():
+    answer = "<choices>" + " / ".join(["B", "A\nC", "C\nD"] * 8) + "</choices>"
+    sanitizer = create_answer_stream_sanitizer("written_exam")
+    assert not any([sanitizer.push(char) for char in answer])
+    final = sanitizer.finish()
+    assert final.startswith("1. b\n2. ac\n3. cd\n")
+    assert final.endswith("\n24. cd")
+    assert final == postprocess_answer_for_mode(answer, "written_exam")
 
 
 # ---- 4.3 first-sentence hard constraint ---------------------------------
