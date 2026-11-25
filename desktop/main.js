@@ -375,10 +375,11 @@ function getStoredOverlayPosition(saved = loadOverlayWindowState()) {
   const displays = screen.getAllDisplays();
   const fitsSomeDisplay = displays.some((display) => {
     const area = display.workArea;
+    const top = process.platform === 'darwin' ? display.bounds.y : area.y;
     return (
       pos.x >= area.x - 40
       && pos.x <= area.x + area.width - 80
-      && pos.y >= area.y - 40
+      && pos.y >= top - 40
       && pos.y <= area.y + area.height - 60
     );
   });
@@ -881,7 +882,7 @@ function unregisterScreenCaptureFallback() {
   }
 }
 
-function showOverlayWindow() {
+function showOverlayWindow({ preserveBounds = false } = {}) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   if (overlayWindow._protectedOverlay?.canShow() === false) return;
   if (!lastOverlayState?.visible) {
@@ -893,7 +894,7 @@ function showOverlayWindow() {
     overlayWindow._pendingShow = true;
     return;
   }
-  applyOverlayModeBounds();
+  if (!preserveBounds) applyOverlayModeBounds();
   overlayWindow.setFocusable(false);
   if (process.platform === 'darwin' || process.platform === 'win32') {
     overlayWindow.showInactive();
@@ -1021,7 +1022,7 @@ const withWindowsHiddenForScreenCapture = createScreenCaptureCoordinator({
   getOverlayWindow: () => overlayWindow,
   getProtectionEnabled: () => captureProtectionEnabled,
   setProtection: setWindowCaptureProtection,
-  showOverlay: () => showOverlayWindow(),
+  showOverlay: () => showOverlayWindow({ preserveBounds: true }),
   wait: waitMs,
   platform: process.platform,
   onError: (error, phase) => {
@@ -2143,11 +2144,7 @@ ipcMain.handle('resize-overlay-window', (_event, payload = {}) => {
   if (mode !== 'prompt') return { ok: true, skipped: true };
 
   const bounds = overlayWindow.getBounds();
-  const center = {
-    x: bounds.x + Math.round(bounds.width / 2),
-    y: bounds.y + Math.round(bounds.height / 2),
-  };
-  const area = screen.getDisplayNearestPoint(center).workArea;
+  const area = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y }).workArea;
   const nextWidth = Number(payload.width);
   const nextHeight = Number(payload.height);
   const promptMaxWidth = Math.max(200, Math.min(PROMPT_OVERLAY_MAX_WIDTH, Number(lastOverlayState?.promptMaxWidth) || PROMPT_OVERLAY_DEFAULT_WIDTH));
@@ -2157,11 +2154,9 @@ ipcMain.handle('resize-overlay-window', (_event, payload = {}) => {
   const height = Number.isFinite(nextHeight)
     ? Math.max(PROMPT_OVERLAY_MIN_SIZE.height, Math.min(Math.round(area.height * PROMPT_OVERLAY_MAX_SIZE.heightRatio), Math.round(nextHeight)))
     : bounds.height;
-  const x = Math.max(area.x + 8, Math.min(bounds.x, area.x + area.width - width - 8));
-  const y = Math.max(area.y + 8, Math.min(bounds.y, area.y + area.height - height - 8));
-
+  // Preserve the user's anchor, including positions inside the macOS menu bar.
   overlayAutoResizeUntil = Date.now() + 500;
-  overlayWindow.setBounds({ x, y, width, height }, false);
+  overlayWindow.setBounds({ width, height }, false);
   // 程序化设的尺寸是 prompt 自适应的权威值, 显式落盘 (绕过 fuse), 使重开时生效。
   schedulePersistOverlayPosition(true);
   return { ok: true, width, height };
