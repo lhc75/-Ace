@@ -340,6 +340,26 @@ describe('ControlBar', () => {
     expect(await screen.findByText('USB Headset Mic')).toBeInTheDocument()
   })
 
+  it('clears the installed BlackHole hint when refresh finds the input', async () => {
+    const pendingHint = 'BlackHole 已安装，等待系统音频设备就绪。'
+    useInterviewStore.setState({
+      devices: [],
+      platformInfo: { platform: 'Darwin', needs_virtual_device: false, instructions: '请刷新音频设备。' },
+    })
+    apiMock.getDevices.mockResolvedValue({
+      devices: [{ id: 9, name: 'BlackHole 2ch', channels: 2, is_loopback: true, host_api: 'Core Audio' }],
+      platform: { platform: 'Darwin', needs_virtual_device: false, instructions: '' },
+    })
+
+    render(<ControlBar />)
+
+    expect(screen.getByText(pendingHint)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新音频设备' }))
+
+    await waitFor(() => expect(screen.queryByText(pendingHint)).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: '选择会议音频设备' })).toHaveTextContent('BlackHole 2ch')
+  })
+
   it('uses fresh interview copy when refreshing devices after mode changes', async () => {
     apiMock.getDevices.mockResolvedValue({
       devices: [

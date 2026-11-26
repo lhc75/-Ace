@@ -601,12 +601,23 @@ export default function ControlBar({ forceInterviewMode = false }: { forceInterv
           未启用任何模型，请在设置中开启至少一个模型。
         </HintBanner>
       )}
-      {!isExamMode && !hasLoopback && platformInfo?.needs_virtual_device && (
+      {!isExamMode && !hasLoopback && platformInfo?.instructions && (
         <HintBanner tone="amber" icon={AlertTriangle} multiline>
           <div>
-            <span className="font-medium">未检测到系统音频设备。</span>
-            <span className="text-text-muted"> 当前只有麦克风，无法录制面试官的声音。</span>
-            <span className="text-accent-blue cursor-pointer" onClick={() => useInterviewStore.getState().toggleSettings()}> 查看配置说明</span>
+            <span className="font-medium">
+              {platformInfo.needs_virtual_device ? '未检测到系统音频设备。' : 'BlackHole 已安装，等待系统音频设备就绪。'}
+            </span>
+            {platformInfo.needs_virtual_device && (
+              <span className="text-text-muted"> 当前只有麦克风，无法录制面试官的声音。</span>
+            )}
+            <button type="button" className="ml-2 text-accent-blue" onClick={() => useInterviewStore.getState().toggleSettings()}>
+              查看配置说明
+            </button>
+            {platformInfo.platform === 'Darwin' && (
+              <button type="button" className="ml-2 text-accent-blue disabled:opacity-50" onClick={handleRefreshDevices} disabled={refreshingDevices}>
+                刷新音频设备
+              </button>
+            )}
           </div>
         </HintBanner>
       )}

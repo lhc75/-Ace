@@ -241,3 +241,30 @@ def test_list_devices_skips_reinit_while_capture_running(monkeypatch):
 
     assert AudioCapture.list_devices() == []
     assert calls == []
+
+
+@pytest.mark.parametrize("driver_installed", [False, True])
+def test_macos_missing_loopback_distinguishes_installed_blackhole(monkeypatch, tmp_path, driver_installed):
+    monkeypatch.setattr(audio_module.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(audio_module, "_MACOS_HAL_DIR", tmp_path)
+    if driver_installed:
+        contents = tmp_path / "BlackHole16ch.driver" / "Contents"
+        contents.mkdir(parents=True)
+        (contents / "Info.plist").touch()
+
+    info = AudioCapture.get_platform_info([{"is_loopback": False}])
+
+    assert info["has_loopback"] is False
+    assert info["needs_virtual_device"] is (not driver_installed)
+    assert ("brew install blackhole-2ch" in info["instructions"]) is (not driver_installed)
+    assert ("BlackHole 已安装" in info["instructions"]) is driver_installed
+
+
+def test_macos_available_loopback_needs_no_setup(monkeypatch):
+    monkeypatch.setattr(audio_module.platform, "system", lambda: "Darwin")
+
+    info = AudioCapture.get_platform_info([{"is_loopback": True}])
+
+    assert info["has_loopback"] is True
+    assert info["needs_virtual_device"] is False
+    assert info["instructions"] == ""

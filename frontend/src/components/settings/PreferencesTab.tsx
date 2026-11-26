@@ -281,7 +281,7 @@ export default function PreferencesTab() {
       </div>
 
       {/* ── 系统状态 ── */}
-      {platformInfo?.needs_virtual_device && (
+      {platformInfo?.instructions && (
         <div className="bg-accent-amber/10 border border-accent-amber/30 rounded-lg p-3 text-xs space-y-2">
           <div className="flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-accent-amber flex-shrink-0 mt-0.5" />

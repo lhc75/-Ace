@@ -26,6 +26,7 @@ _alog = get_logger("audio")
 
 # Windows WDM-KS devices crash PortAudio with -9999; exclude them entirely
 _WDM_KS_API = "Windows WDM-KS"
+_MACOS_HAL_DIR = Path("/Library/Audio/Plug-Ins/HAL")
 
 
 class AudioBusyError(RuntimeError):
@@ -291,7 +292,7 @@ class AudioCapture:
         return result
 
     @staticmethod
-    def get_platform_info() -> dict:
+    def get_platform_info(devices: Optional[list[dict]] = None) -> dict:
         system = platform.system()
         info = {
             "platform": system,
@@ -299,34 +300,42 @@ class AudioCapture:
             "instructions": "",
             "has_loopback": False,
         }
+        if system not in ("Darwin", "Windows"):
+            return info
+
+        if devices is None:
+            devices = AudioCapture.list_devices()
+        info["has_loopback"] = any(d["is_loopback"] for d in devices)
+        if info["has_loopback"]:
+            return info
+
         if system == "Darwin":
-            devices = AudioCapture.list_devices()
-            has_loopback = any(d["is_loopback"] for d in devices)
-            info["has_loopback"] = has_loopback
-            if not has_loopback:
+            if any(plist.is_file() for plist in _MACOS_HAL_DIR.glob("BlackHole*.driver/Contents/Info.plist")):
+                info["instructions"] = (
+                    "BlackHole 已安装，暂未出现在可用音频输入中。\n"
+                    "请打开「音频 MIDI 设置」查看 BlackHole。"
+                    "如果列表中没有 BlackHole，请重启 Mac。\n"
+                    "看到 BlackHole 后，回到 Ace 刷新音频设备。"
+                )
+            else:
                 info["needs_virtual_device"] = True
                 info["instructions"] = (
-                    "⚠️ 未检测到系统音频捕获设备！\n\n"
-                    "请安装 BlackHole 虚拟音频设备：\n"
+                    "请运行下载的 BlackHole .pkg 安装包，或通过 Homebrew 安装：\n"
                     "  brew install blackhole-2ch\n"
-                    "然后在「音频 MIDI 设置」中创建多输出设备。"
+                    "安装后，在「音频 MIDI 设置」中创建多输出设备，再回到 Ace 刷新音频设备。"
                 )
-        elif system == "Windows":
-            devices = AudioCapture.list_devices()
-            has_loopback = any(d["is_loopback"] for d in devices)
-            info["has_loopback"] = has_loopback
-            if not has_loopback:
-                info["needs_virtual_device"] = True
-                _alog.warning(
-                    "Windows 未检测到系统音频回环设备 (soundcard_available=%s)",
-                    _HAS_SC,
-                )
-                info["instructions"] = (
-                    "⚠️ 未检测到系统音频输出设备！\n\n"
-                    "请确认电脑有可用的扬声器/耳机，且 Windows 声音服务运行正常；\n"
-                    "远程桌面或虚拟显示器环境下，请先启用本地音频输出。\n\n"
-                    "若仍无法识别，请把日志目录里的音频报错发给开发者。"
-                )
+        else:
+            info["needs_virtual_device"] = True
+            _alog.warning(
+                "Windows 未检测到系统音频回环设备 (soundcard_available=%s)",
+                _HAS_SC,
+            )
+            info["instructions"] = (
+                "⚠️ 未检测到系统音频输出设备！\n\n"
+                "请确认电脑有可用的扬声器/耳机，且 Windows 声音服务运行正常；\n"
+                "远程桌面或虚拟显示器环境下，请先启用本地音频输出。\n\n"
+                "若仍无法识别，请把日志目录里的音频报错发给开发者。"
+            )
         return info
 
     # ------------------------------------------------------------------

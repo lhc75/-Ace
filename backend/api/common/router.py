@@ -606,7 +606,7 @@ async def api_options():
 async def api_devices():
     try:
         devices = AudioCapture.list_devices()
-        platform_info = AudioCapture.get_platform_info()
+        platform_info = AudioCapture.get_platform_info(devices)
         return {"devices": devices, "platform": platform_info}
     except Exception as e:
         return {"devices": [], "platform": {"platform": "unknown", "needs_virtual_device": False, "instructions": "", "error": str(e)}}

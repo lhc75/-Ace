@@ -74,6 +74,17 @@ describe('PreferencesTab', () => {
     })
   })
 
+  it('shows setup instructions when the installed BlackHole is not ready', () => {
+    const instructions = 'BlackHole 已安装，暂未出现在可用音频输入中。'
+    useInterviewStore.setState({
+      platformInfo: { platform: 'Darwin', needs_virtual_device: false, instructions },
+    })
+
+    render(<PreferencesTab />)
+
+    expect(screen.getByText(instructions)).toBeInTheDocument()
+  })
+
   it('saves answer length choices immediately from common preferences', async () => {
     render(<PreferencesTab />)
 
