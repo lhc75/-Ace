@@ -5,7 +5,7 @@
 面向真实技术面试全流程：实时转写支持四种识别引擎（本地 Whisper / 豆包 / 通用 ASR / 阿里千问），说完即定稿派发；自己的回答也会被麦克风转写记录，供复盘和上下文参考。Electron 桌面端提供窗口捕获保护、Boss Key、托盘和悬浮问答窗。macOS 上使用 ScreenCaptureKit 的应用仍可能采集 Ace 窗口。
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.5-284B63" alt="Version" />
+  <img src="https://img.shields.io/badge/version-2.1.6-284B63" alt="Version" />
   <img src="https://img.shields.io/badge/license-CC%20BY--NC%204.0-A23B72" alt="License" />
   <img src="https://img.shields.io/badge/python-3.10+-2A9D8F" alt="Python" />
   <img src="https://img.shields.io/badge/node-18+-E76F51" alt="Node" />

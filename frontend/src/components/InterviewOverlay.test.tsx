@@ -156,8 +156,67 @@ describe('InterviewOverlay', () => {
 
     render(<InterviewOverlay />)
 
-    await waitFor(() => expect(screen.getByText('笔试中…')).toBeInTheDocument())
+    await waitFor(() => expect(useInterviewStore.getState().config?.written_exam_mode).toBe(true))
     expect(apiMock.getConfig).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['prompt', 'glass'] as const)('shows only the streamed answer in %s mode', async (mode) => {
+    apiMock.getConfig.mockResolvedValue({ written_exam_mode: true })
+    useUiPrefsStore.setState({ interviewOverlayMode: mode })
+    localStorage.setItem('ia_overlay_mode', mode)
+    useInterviewStore.setState({ qaPairs: [], isRecording: false, config: null })
+    const { container } = render(<InterviewOverlay />)
+    const root = container.querySelector('.ov-root')
+
+    await waitFor(() => expect(useInterviewStore.getState().config?.written_exam_mode).toBe(true))
+    expect(root).not.toBeVisible()
+    expect(root?.textContent).toBe('')
+
+    act(() => useInterviewStore.setState({ isRecording: true }))
+    expect(root?.textContent).toBe('')
+
+    act(() => useInterviewStore.getState().startAnswer(qa.id, qa.question))
+    expect(root?.textContent).toBe('')
+
+    const pendingQa = { ...qa, answer: ' \n ', thinkContent: '思考中...', isThinking: true, status: 'streaming' as const }
+    act(() => useInterviewStore.setState({ qaPairs: [pendingQa] }))
+    expect(root).not.toBeVisible()
+    expect(root?.textContent).toBe('')
+
+    act(() => useInterviewStore.setState({ qaPairs: [{ ...pendingQa, answer: 'acd' }] }))
+    expect(screen.getByText('acd')).toBeVisible()
+    expect(root?.textContent).toBe('acd')
+    expect(root?.querySelector('.ov-caret')).toBeNull()
+
+    act(() => useInterviewStore.getState().cancelAnswer(qa.id))
+    expect(root).not.toBeVisible()
+    expect(root?.textContent).toBe('')
+
+    act(() => useInterviewStore.getState().errorAnswer(qa.id, '请求失败'))
+    expect(root?.textContent).toBe('')
+  })
+
+  it('publishes empty frames while waiting, thinking, and after clearing a native overlay answer', async () => {
+    const publishProtectedOverlayFrame = vi.fn()
+    window.electronAPI = { publishProtectedOverlayFrame } as unknown as NonNullable<typeof window.electronAPI>
+    useUiPrefsStore.setState({ interviewOverlayMode: 'focus' })
+    localStorage.setItem('ia_overlay_mode', 'focus')
+    useInterviewStore.setState({ qaPairs: [], streamingIds: [] })
+
+    render(<InterviewOverlay protectedPresentation />)
+    await waitFor(() => expect(publishProtectedOverlayFrame).toHaveBeenLastCalledWith(expect.objectContaining({ text: '' })))
+
+    act(() => useInterviewStore.setState({
+      qaPairs: [{ ...qa, answer: '', thinkContent: '思考中...', isThinking: true }],
+      streamingIds: [qa.id],
+    }))
+    expect(publishProtectedOverlayFrame).toHaveBeenLastCalledWith(expect.objectContaining({ text: '' }))
+
+    act(() => useInterviewStore.setState({ qaPairs: [{ ...qa, answer: '## 答案\nacd' }] }))
+    expect(publishProtectedOverlayFrame).toHaveBeenLastCalledWith(expect.objectContaining({ text: 'acd' }))
+
+    act(() => useInterviewStore.getState().clearSession())
+    expect(publishProtectedOverlayFrame).toHaveBeenLastCalledWith(expect.objectContaining({ text: '' }))
   })
 
   it('keeps failed screenshot self-check details out of prompt overlay mode', () => {

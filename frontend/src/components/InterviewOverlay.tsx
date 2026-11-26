@@ -93,11 +93,6 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
     overlayInteractiveRef.current = interactive
     window.electronAPI.setOverlayInteractive(interactive).catch(() => {})
   }, [])
-  // 隐身状态结束（或面板隐藏）时，确保把临时放行复位，避免残留的可交互态。
-  useEffect(() => {
-    if (!stealthActive) setOverlayInteractive(false)
-    return () => setOverlayInteractive(false)
-  }, [stealthActive, setOverlayInteractive])
   const handleShellEnter = useCallback(() => {
     if (stealthActive) setOverlayInteractive(true)
   }, [stealthActive, setOverlayInteractive])
@@ -124,15 +119,25 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
   const displayedQaIndex = displayedQa ? qaPairs.findIndex((item) => item.id === displayedQa.id) : -1
   const isReviewingHistory = Boolean(reviewQaId && displayedQa)
 
-  const answer = displayedQa?.answer
+  const answerOnly = protectedPresentation || overlayMode !== 'focus'
+  const answer = displayedQa?.answer ?? ''
   const answerText =
     displayedQa?.status === 'cancelled'
-      ? '上一条回答已取消'
+      ? (answerOnly ? '' : '上一条回答已取消')
       : displayedQa?.status === 'error'
-        ? `保存失败: ${displayedQa.errorMessage || '未知原因'}`
-        : (protectedPresentation ? answer : answer?.trim()) || (displayedQa ? (displayedQa.isThinking ? '思考中…' : '正在组织回答…') : '')
+        ? (answerOnly ? '' : `保存失败: ${displayedQa.errorMessage || '未知原因'}`)
+        : (protectedPresentation ? answer : answer.trim())
+          || (!answerOnly && displayedQa ? (displayedQa.isThinking ? '思考中…' : '正在组织回答…') : '')
   const isStreaming = displayedQa ? streamingIds.includes(displayedQa.id) : false
-  const hasContent = Boolean(displayedQa)
+  const hasContent = answerOnly ? Boolean(answerText.trim()) : Boolean(displayedQa)
+  const showOverlayShell = enabled && (!answerOnly || hasContent)
+
+  // 面板消失时也复位鼠标穿透，避免等待 mouseleave。
+  useEffect(() => {
+    if (!stealthActive || !showOverlayShell) setOverlayInteractive(false)
+    return () => setOverlayInteractive(false)
+  }, [stealthActive, showOverlayShell, setOverlayInteractive])
+
   const liveGeneratingQa = useMemo(
     () => qaPairs.find((item) => item.id !== displayedQa?.id && streamingIds.includes(item.id)) ?? null,
     [displayedQa?.id, qaPairs, streamingIds],
@@ -394,14 +399,14 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
     if (!protectedPresentation) return
     window.electronAPI?.publishProtectedOverlayFrame?.({
       id: overlayMode === 'focus' ? `${displayedQaKey}:${activeFocusTab}` : displayedQaKey,
-      text: enabled && overlayVisible ? protectedText || (isRecording ? '正在聆听…' : '等待会话开始') : '',
+      text: enabled && overlayVisible && hasContent ? protectedText : '',
       streaming: isStreaming,
       follow: overlayMode !== 'prompt' || overlayPromptAutoFollow,
       fontSize,
       fontColor,
       opacity,
     })
-  }, [activeFocusTab, displayedQaKey, enabled, fontColor, fontSize, isRecording, isStreaming, opacity,
+  }, [activeFocusTab, displayedQaKey, enabled, fontColor, fontSize, hasContent, isStreaming, opacity,
     overlayMode, overlayPromptAutoFollow, overlayVisible, protectedPresentation, protectedText])
 
   if (protectedPresentation) return null
@@ -434,18 +439,6 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
   const standbyHint = isRecording
     ? (isExamMode ? '笔试中…' : '正在聆听…')
     : (isExamMode ? '点击开始笔试' : '等待面试开始')
-
-  const renderedAnswer = hasContent ? (
-    <div className="ov-answer-stack">
-      {/* 悬浮窗只展示答案：不再显示“当前 n/n · 题目前言”行（截图题的前言是给 LLM 的提示词，纯属噪音） */}
-      <OverlayMarkdown content={overlayAnswerSlice.text} />
-      {isStreaming && <span className="ov-caret" />}
-    </div>
-  ) : (
-    <span className="ov-standby-hint" style={{ fontSize: `${answerFontSize}px` }}>
-      {standbyHint}
-    </span>
-  )
 
   if (overlayMode === 'focus') {
     return (
@@ -551,6 +544,7 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
   return (
     <div
       className={`ov-root ${overlayMode === 'prompt' ? 'ov-root--prompt' : ''}`}
+      style={showOverlayShell ? undefined : { visibility: 'hidden' }}
     >
       <div
         className={shellClass}
@@ -570,7 +564,11 @@ export default function InterviewOverlay({ protectedPresentation = false }: { pr
             event.currentTarget.scrollTop += event.deltaY
           }}
         >
-          {renderedAnswer}
+          {hasContent && (
+            <div className="ov-answer-stack">
+              <OverlayMarkdown content={overlayAnswerSlice.text} />
+            </div>
+          )}
         </div>
       </div>
     </div>
