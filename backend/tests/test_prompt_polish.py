@@ -156,7 +156,8 @@ def test_written_exam_short_answers_match_examples(reset_resume):
     assert "A: <choices>b</choices>\n" in p
     assert "A: <choices>ac</choices>\n" in p
     assert "同一道题的字母放在同一行" in p
-    assert "A: 60\n30\n" in p
+    assert "A: <blanks>60\n30</blanks>\n" in p
+    assert "1.60 2.30" in p
     assert "A: 未识别到题目。\n" in p
     assert "只输出一个代码块" in p
     assert "依据: 一句话" not in p
@@ -188,6 +189,23 @@ def test_written_exam_choice_stream_holds_long_answer_until_formatted():
     assert final.startswith("1. b\n2. ac\n3. cd\n")
     assert final.endswith("\n24. cd")
     assert final == postprocess_answer_for_mode(answer, "written_exam")
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        ("<blanks>60</blanks>", "60"),
+        ("<blanks>wwww\nssss</blanks>", "1.wwww 2.ssss"),
+        (" <blanks>\n1.25\r\n\r\n2.50\nNew York\n</blanks>", "1.1.25 2.2.50 3.New York"),
+        ("<blanks>60\n30", "1.60 2.30"),
+        ("<blanks>" + "x" * 70 + "\nlast</blanks>", "1." + "x" * 70 + " 2.last"),
+    ],
+)
+def test_written_exam_streams_marked_blanks_as_one_line(answer, expected):
+    sanitizer = create_answer_stream_sanitizer("written_exam")
+    assert all(sanitizer.push(char) == "" for char in answer)
+    assert sanitizer.finish() == expected
+    assert postprocess_answer_for_mode(answer, "written_exam") == expected
 
 
 # ---- 4.3 first-sentence hard constraint ---------------------------------

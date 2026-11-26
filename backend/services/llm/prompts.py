@@ -15,6 +15,8 @@ PROMPT_MODE_AI_INTERVIEW = "ai_interview"
 
 _EXAM_CHOICES_OPEN = "<choices>"
 _EXAM_CHOICES_CLOSE = "</choices>"
+_EXAM_BLANKS_OPEN = "<blanks>"
+_EXAM_BLANKS_CLOSE = "</blanks>"
 
 ANSWER_PROFILE_ASSIST = "assist"
 ANSWER_PROFILE_AI_INTERVIEW = "ai_interview"
@@ -83,7 +85,7 @@ _FEWSHOT_EXAM = (
     'Q: "[多选题] 哪些是偶数？ A. 2 B. 3 C. 4"\n'
     "A: <choices>ac</choices>\n"
     'Q: "[填空题] 一小时等于____分钟，半小时等于____分钟。"\n'
-    "A: 60\n30\n"
+    "A: <blanks>60\n30</blanks>\n"
     'Q: "[截图] 只有登录表单"\n'
     "A: 未识别到题目。\n"
     'Q: "[编程题] 用 Python 实现 reverse_list(head)，节点类型已提供。"\n'
@@ -519,7 +521,8 @@ def _written_exam_prompt_body(language: str, language_lower: str, screen_region:
         "- 没有选项标识时，直接给所选内容，同一道题的多项内容用顿号连接。\n",
         "- 判断题格式为正确或错误。\n",
         "填空题:\n",
-        "- 只输出填空内容，多空按题目顺序每空一行，不编号。\n",
+        "- 整次作答都是填空题时，用 <blanks> 和 </blanks> 包住填空内容，标签内按顺序每空一行，只写每空的原始答案，由系统排成一行。\n",
+        "- 同时作答其他题型时，每道填空题单独占一行。单空直接写答案，多空写成 1.60 2.30 的格式，编号后紧接答案，各空之间用一个空格分隔。\n",
         "- 不要重复题干, 不要解释。\n\n",
         "编程题/算法题/SQL题:\n",
         "- 确认逻辑无误后直接输出完整可运行代码, 不展示验证过程;\n",
@@ -642,13 +645,25 @@ def _format_exam_choices(text: str) -> str:
     return "\n".join(f"{index}. {answer}" for index, answer in enumerate(answers, 1))
 
 
+def _format_exam_answer(text: str) -> str:
+    if not text.startswith(_EXAM_BLANKS_OPEN):
+        return _format_exam_choices(text)
+
+    payload = text.removeprefix(_EXAM_BLANKS_OPEN).strip()
+    payload = payload.removesuffix(_EXAM_BLANKS_CLOSE).strip()
+    answers = [line.strip() for line in payload.splitlines() if line.strip()]
+    if len(answers) <= 1:
+        return payload
+    return " ".join(f"{index}.{answer}" for index, answer in enumerate(answers, 1))
+
+
 def postprocess_answer_for_mode(text: str, mode: str) -> str:
     t = strip_web_citation_markers(_strip_internal_thought_artifacts(text))
     if mode in (PROMPT_MODE_ASR_REALTIME, PROMPT_MODE_MANUAL_TEXT, PROMPT_MODE_AI_INTERVIEW):
         t = _strip_meta_preface(t)
         t = _normalize_non_code_markdown(t)
     elif mode == PROMPT_MODE_WRITTEN_EXAM:
-        t = _format_exam_choices(t)
+        t = _format_exam_answer(t.lstrip())
     return t.strip()
 
 
@@ -664,7 +679,7 @@ class AnswerStreamSanitizer:
         self._started = False
         self._line_start = True
         self._in_code = False
-        self._exam_choice_buffer = ""
+        self._exam_answer_buffer = ""
 
     def push(self, chunk: str) -> str:
         if not chunk:
@@ -685,13 +700,16 @@ class AnswerStreamSanitizer:
     def _clean_emit(self, text: str, *, final: bool = False) -> str:
         text = strip_web_citation_markers(self._strip_hidden_stream(text))
         if self.mode == PROMPT_MODE_WRITTEN_EXAM and not self._started:
-            text = (self._exam_choice_buffer + text).lstrip()
-            if not final and (text.startswith(_EXAM_CHOICES_OPEN) or _EXAM_CHOICES_OPEN.startswith(text)):
-                self._exam_choice_buffer = text
+            text = (self._exam_answer_buffer + text).lstrip()
+            if not final and any(
+                text.startswith(marker) or marker.startswith(text)
+                for marker in (_EXAM_CHOICES_OPEN, _EXAM_BLANKS_OPEN)
+            ):
+                self._exam_answer_buffer = text
                 return ""
-            self._exam_choice_buffer = ""
+            self._exam_answer_buffer = ""
             if final:
-                text = _format_exam_choices(text)
+                text = _format_exam_answer(text)
         if not text:
             return ""
         if (

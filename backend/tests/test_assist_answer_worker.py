@@ -2288,14 +2288,16 @@ def test_written_exam_manual_input_uses_exam_mode_and_no_history(monkeypatch: py
 
 
 @pytest.mark.parametrize(
-    ("source", "image", "model_answer", "expected"),
+    ("source", "image", "model_chunks", "expected"),
     [
-        ("manual_text", None, "B", "b"),
-        ("server_screen_left", ["data:image/png;base64,current"], "A\nC D", "acd"),
+        ("manual_text", None, ("<cho", "ices>B</choices>"), "b"),
+        ("server_screen_left", ["data:image/png;base64,current"], ("<cho", "ices>A\nC D</choices>"), "acd"),
+        ("manual_text", None, ("<bla", "nks>wwww\n", "ssss</blanks>"), "1.wwww 2.ssss"),
+        ("server_screen_left", ["data:image/png;base64,current"], ("<blanks>60", "\n30</blanks>"), "1.60 2.30"),
     ],
 )
-def test_written_exam_streams_and_saves_compact_choice_answer(
-    monkeypatch: pytest.MonkeyPatch, source, image, model_answer, expected,
+def test_written_exam_streams_and_saves_compact_answer(
+    monkeypatch: pytest.MonkeyPatch, source, image, model_chunks, expected,
 ):
     broadcasts: list[dict] = []
     cfg = _cfg()
@@ -2303,12 +2305,12 @@ def test_written_exam_streams_and_saves_compact_choice_answer(
     monkeypatch.setattr(answer_worker, "get_config", lambda: cfg)
 
     def fake_stream(_model_cfg, _messages, **_kwargs):
-        yield "text", "<cho"
-        yield "text", f"ices>{model_answer}</choices>"
+        for chunk in model_chunks:
+            yield "text", chunk
 
     monkeypatch.setattr(answer_worker, "chat_stream_single_model", fake_stream)
     answer_worker.process_question_parallel(
-        ("当前选择题", image, True, source, {}),
+        ("当前笔试题", image, True, source, {}),
         seq=0,
         model_idx=0,
         sess_v=0,
